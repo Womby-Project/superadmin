@@ -1,12 +1,15 @@
-// tailwind.config.js
 /** @type {import('tailwindcss').Config} */
+import animate from "tailwindcss-animate"
+
 export default {
- content: [
-   "./index.html",
-   "./src/**/*.{js,ts,jsx,tsx}",
- ],
- theme: {
-   extend: {},
- },
- plugins: [],
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [
+    animate, // ✅ Tailwind v4 animation plugin
+  ],
 }
