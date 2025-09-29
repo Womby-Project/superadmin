@@ -1,17 +1,12 @@
-// src/components/Sidebar.tsx
 
 import { NavLink } from 'react-router-dom';
 import { Icon } from '@iconify/react';
-import HomeIcon from '@mui/icons-material/Home';
-import SettingsIcon from '@mui/icons-material/Settings';
-import LogoutIcon from '@mui/icons-material/Logout';
 
-
-export default function Sidebar() {
+export default function SidebarComponents() {
     return (
         <aside className="fixed left-0 w-[260px] bg-white border-r h-screen shadow-md flex flex-col border-gray-200 overflow-hidden">
             {/* Logo and App Name */}
-            <div className="h-15 flex items-center px-4 border-b border-gray-200 space-x-3 pb-4 pl-6">
+            <div className="h-15 flex items-center px-4 border-b border-gray-200 space-x-3 py-3 pl-6">
                 <img
                     src="/src/assets/wombly-logo.png"
                     alt="womblylogo"
@@ -24,42 +19,50 @@ export default function Sidebar() {
             </div>
 
             {/* Navigation */}
-            <div className="flex flex-col justify-between flex-1">
+            <div className="flex flex-col justify-between flex-1 pt-2">
                 <div>
                     {/* Overview Section */}
-                    <p className="ml-8 mt-5 text-[14px] font-semibold text-left text-gray-400 uppercase mb-2">
+                    <p className="ml-8 mt-3 text-[12px] font-semibold text-left text-gray-400 uppercase mb-1 tracking-wider">
                         OVERVIEW
                     </p>
-                    <nav className="px-8 space-y-2">
-                        <SidebarLink icon={<HomeIcon fontSize="medium" />} text="Dashboard" to="/" />
+                    <nav className="px-8 space-y-1">
+                        <SidebarLink icon={<Icon icon="ph:house-bold" className='h-5 w-5' />} text="Dashboard" to="/" />
                     </nav>
 
 
                     {/* OBGYN's Section */}
-                    <p className="ml-8 mt-6 text-[14px] font-semibold text-left text-gray-400 uppercase mb-2">
-                        MANAGEMENT
+                    <p className="ml-8 mt-4 text-[12px] font-semibold text-left text-gray-400 uppercase mb-1 tracking-wider">
+                        OB-GYNS
                     </p>
-                    <nav className="px-8 space-y-2">
+                    <nav className="px-8 space-y-1">
                         <SidebarLink icon={<Icon icon="jam:medical" className='h-5 w-5' />} text="Directory" to="/obgyndirectory" />
                         <SidebarLink icon={<Icon icon="mingcute:send-fill" className='h-5 w-5' />} text="Approvals" to="/aprrovals-list" />
                     </nav>
-                    {/* OBGYN's Section */}
-                    <p className="ml-8 mt-6 text-[14px] font-semibold text-left text-gray-400 uppercase mb-2">
+                    {/* Community & Content Section */}
+                    <p className="ml-8 mt-4 text-[12px] font-semibold text-left text-gray-400 uppercase mb-1 tracking-wider">
                         COMMUNITY & CONTENT
                     </p>
-                    <nav className="px-8 space-y-2">
+                    <nav className="px-8 space-y-1">
                         <SidebarLink icon={<Icon icon="ic:baseline-people-alt" className='h-5 w-5' />} text="Forum" to="/forum-management" />
                         <SidebarLink icon={<Icon icon="mingcute:hospital-fill" className='h-5 w-5' />} text="Health Centers" to="/healthcenter-management" />
+                        <SidebarLink icon={<Icon icon="material-symbols:library-books-rounded" className='h-5 w-5' />} text="Informative Content" to="/informative-content" />
+                    </nav>
+                     {/* Pricing Section */}
+                    <p className="ml-8 mt-4 text-[12px] font-semibold text-left text-gray-400 uppercase mb-1 tracking-wider">
+                        Pricing
+                    </p>
+                    <nav className="px-8 space-y-1">
+                        <SidebarLink icon={<Icon icon="ic:twotone-payment" className='h-5 w-5' />} text="Service Fee" to="/service-fee" />
                     </nav>
                 </div>
 
                 {/* Account Settings at bottom */}
-                <div className="px-8 mb-6 space-y-2">
-                    <p className="text-[14px] font-semibold uppercase text-left text-gray-400 mb-2">
+                <div className="px-8 mb-4 space-y-1">
+                    <p className="text-[12px] font-semibold uppercase text-left text-gray-400 mb-1 tracking-wider">
                         Account
                     </p>
-                    <SidebarLink icon={<SettingsIcon fontSize="medium" />} text="Settings" to="/settings" />
-                    <SidebarLink icon={<LogoutIcon fontSize="medium" />} text="Logout" to="/logout" />
+                    <SidebarLink icon={<Icon icon="ph:gear-six-bold" className='h-5 w-5' />} text="Settings" to="/settings" />
+                    <SidebarLink icon={<Icon icon="ph:sign-out-bold" className='h-5 w-5' />} text="Logout" to="/logout" />
                 </div>
             </div>
         </aside>
@@ -77,12 +80,15 @@ function SidebarLink({ icon, text, to }: SidebarLinkProps) {
         <NavLink
             to={to}
             className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-2 rounded-md text-sm font-medium ${isActive ? 'bg-[#E9AEA4] text-white w-[190px]' : 'text-gray-700 hover:bg-gray-100'
+                `flex items-center gap-3 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${isActive
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                 }`
             }
         >
             {icon}
-            <span className="text-base">{text}</span>
+            <span className="text-base font-medium">{text}</span>
         </NavLink>
     );
 }
+
