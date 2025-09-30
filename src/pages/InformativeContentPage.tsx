@@ -1,75 +1,100 @@
-import React, { useState } from 'react';
-import SidebarComponents from '../components/SidebarComponents';
-import Header from '../components/HeaderComponent';
-import InformativeContentHeader from '../components/InformativeContentComponents/InformativeContentHeader';
-import ContentFilter from '../components/InformativeContentComponents/ContentFilter';
-import ContentCard, { type Article } from '../components/InformativeContentComponents/ArticleCard';
-import ArticleDetailView from '@/components/InformativeContentComponents/ArticleView';
-import article from '@/assets/article1.png';
+import React, { useState, useEffect } from "react";
+import SidebarComponents from "../components/SidebarComponents";
+import Header from "../components/HeaderComponent";
+import InformativeContentHeader from "../components/InformativeContentComponents/InformativeContentHeader";
+import ContentFilter from "../components/InformativeContentComponents/ContentFilter";
+import ContentCard, { type Article } from "../components/InformativeContentComponents/ArticleCard";
+import ArticleDetailView from "@/components/InformativeContentComponents/ArticleView";
+import { supabase } from "@/lib/supabaseClient";
+import { toast, Toaster } from "sonner"; // ✅ toast for notifications
 
-// Mock data for the informative content
-// In a real application, you would fetch this data from an API
-const articles: Article[] = [
-  {
-    image: article,
-    title: 'The Importance of Prenatal Care for Every Mother',
-    status: 'Posted',
-    description: 'Regular prenatal check-ups help monitor both the mother’s and baby’s health, ensuring early detection of potential risks. These visits also provide mothers with guidance on n...',
-    publishedDate: 'August 1, 2025',
-    source: 'Mayo Clinic',
-    fetchedDate: 'August 2, 2025',
-  },
-    {
-    image: article,
-    title: 'Understanding Postpartum Depression and How to Cope',
-    status: 'Posted',
-    description: 'Postpartum depression is a common but serious condition that affects many new mothers. Learn about the symptoms, risk factors, and effective coping strategies to navigate th...',
-    publishedDate: 'July 28, 2025',
-    source: 'WebMD',
-    fetchedDate: 'July 29, 2025',
-  },
-  {
-    image: article,
-    title: 'Nutritional Needs During Pregnancy: A Comprehensive Guide',
-    status: 'Archived',
-    description: 'A healthy diet is crucial for a healthy pregnancy. This article covers the essential nutrients, vitamins, and minerals you need, along with foods to eat and avoid for the well-b...',
-    publishedDate: 'July 15, 2025',
-    source: 'Healthline',
-    fetchedDate: 'July 16, 2025',
-  },
-  {
-    image: article,
-    title: 'The Stages of Labor: What to Expect When You\'re Expecting',
-    status: 'Posted',
-    description: 'From early labor to the delivery of your baby, understanding the stages of labor can help you feel more prepared and confident. This guide breaks down each stage, offering...',
-    publishedDate: 'June 30, 2025',
-    source: 'Mayo Clinic',
-    fetchedDate: 'July 1, 2025',
-  },
-  {
-    image: article,
-    title: 'Common Discomforts During Pregnancy and How to Manage Them',
-    status: 'Draft',
-    description: 'Morning sickness, back pain, and fatigue are common challenges during pregnancy. Discover practical tips and remedies to alleviate these discomforts and enjoy a healthier...',
-    publishedDate: 'June 12, 2025',
-    source: 'WebMD',
-    fetchedDate: 'June 13, 2025',
-  },
-  {
-    image: article,
-    title: 'Benefits of Exercise During Pregnancy for Mother and Baby',
-    status: 'Posted',
-    description: 'Staying active during pregnancy offers numerous benefits, from reducing backaches to improving your mood and stamina for labor. Learn about safe exercises and activities...',
-    publishedDate: 'May 25, 2025',
-    source: 'Healthline',
-    fetchedDate: 'May 26, 2025',
-  },
-];
+// Map Supabase row -> ArticleCard type
+function mapArticle(row: any): Article {
+  const normalizedStatus = row.status
+    ? row.status.charAt(0).toUpperCase() + row.status.slice(1).toLowerCase()
+    : "Draft";
+
+  return {
+    id: row.id,
+    image: row.thumbnail_url || "/placeholder.png",
+    title: row.title,
+    status: normalizedStatus as "Posted" | "Draft" | "Archived",  // ✅ always consistent
+    description: row.excerpt || "",
+    publishedDate: row.published_at
+      ? new Date(row.published_at).toLocaleDateString()
+      : "Unpublished",
+    source: row.source || "Unknown",
+    fetchedDate: row.created_at
+      ? new Date(row.created_at).toLocaleDateString()
+      : "",
+    body: row.body || "",
+    author: row.author || "Unknown",
+  };
+}
 
 
 export default function InformativeContentPage() {
-  const [activeFilter, setActiveFilter] = useState('All');
-  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null); // State for the selected article
+  const [activeFilter, setActiveFilter] = useState("All");
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  // --- Fetch Articles ---
+  const fetchArticles = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("articles")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching articles:", error.message);
+      toast.error("Failed to fetch articles");
+      setArticles([]);
+    } else {
+      setArticles(data.map(mapArticle));
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchArticles();
+  }, []);
+
+  // --- Add Article Handler ---
+  const handleAddArticle = async (url: string) => {
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-article`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ url }),
+        }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Server error: ${res.status} - ${errText}`);
+      }
+
+      const data = await res.json();
+
+      if (data.article) {
+        // Optimistic update
+        setArticles((prev) => [mapArticle(data.article), ...prev]);
+        toast.success("Article added to draft successfully!");
+      }
+
+    } catch (err) {
+      console.error("Error adding article:", err);
+      toast.error("Failed to add article. Please try again.");
+    }
+  };
 
   // --- Handlers ---
   const handleViewArticle = (article: Article) => {
@@ -80,11 +105,23 @@ export default function InformativeContentPage() {
     setSelectedArticle(null);
   };
 
-  const filteredArticles = articles.filter(article => {
-    if (activeFilter === 'All') return true;
-    return article.status === activeFilter;
+
+  const handleStatusChange = (id: string, newStatus: 'Posted' | 'Draft' | 'Archived') => {
+    setArticles(prev =>
+      prev.map(article =>
+        article.id === id ? { ...article, status: newStatus } : article
+      )
+    );
+  };
+
+
+  const filteredArticles = articles.filter((article) => {
+    const matchesFilter = activeFilter === "All" ? true : article.status === activeFilter;
+    const matchesSearch = article.title.toLowerCase().includes(search.toLowerCase());
+    return matchesFilter && matchesSearch;
   });
-  
+
+  // --- Update counts dynamically based on normalized statuses
   const counts = {
     All: articles.length,
     Posted: articles.filter(a => a.status === 'Posted').length,
@@ -92,8 +129,11 @@ export default function InformativeContentPage() {
     Archived: articles.filter(a => a.status === 'Archived').length,
   };
 
+
+
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
+      <Toaster richColors position="top-right" />
       <aside className="w-64 bg-white shadow-md hidden md:block">
         <SidebarComponents />
       </aside>
@@ -102,22 +142,42 @@ export default function InformativeContentPage() {
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
           <div className="container mx-auto space-y-6">
             {selectedArticle ? (
-              // If an article is selected, show the detail view
-              <ArticleDetailView article={selectedArticle} onBack={handleBackToList} />
+              <ArticleDetailView
+                article={selectedArticle}
+                onBack={handleBackToList}
+              />
             ) : (
-              // Otherwise, show the list/grid view
               <>
-                <InformativeContentHeader />
-                <ContentFilter activeFilter={activeFilter} setActiveFilter={setActiveFilter} counts={counts} />
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filteredArticles.map((article, index) => (
-                    <ContentCard 
-                      key={index} 
-                      article={article} 
-                      onView={handleViewArticle} // Pass the handler to each card
-                    />
-                  ))}
-                </div>
+                {/* ✅ now handleAddArticle exists */}
+                <InformativeContentHeader
+                  search={search}
+                  setSearch={setSearch}
+                  onAdd={handleAddArticle}
+                />
+
+                <ContentFilter
+                  activeFilter={activeFilter}
+                  setActiveFilter={setActiveFilter}
+                  counts={counts}
+                />
+
+                {loading ? (
+                  <p className="text-center text-gray-500">
+                    Loading articles...
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredArticles.map((article, index) => (
+                      <ContentCard
+                        key={index}
+                        article={article}
+                        onView={handleViewArticle}
+                        onStatusChange={handleStatusChange}
+                      />
+
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>

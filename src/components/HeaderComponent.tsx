@@ -1,21 +1,18 @@
-import React from 'react';
-import NotificationsIcon from '@mui/icons-material/Notifications';
+import React from "react";
+import NotificationsIcon from "@mui/icons-material/Notifications";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useAuth } from "@/components/AuthProvider";
 
 type HeaderProps = {
-  name?: string;
-  title?: string;
-  avatarUrl?: string;
   hasNotifications?: boolean;
 };
 
-function Header({
-  name = 'Dr. Sarah Johnson',
-  title = 'OBGYN',
-  avatarUrl,
-  hasNotifications = false,
-}: HeaderProps) {
+function Header({ hasNotifications = false }: HeaderProps) {
+  const { user, signOut } = useAuth();
+
+  const name = user?.email || "Guest User";
+  const title = user ? "Admin" : "Not logged in"; // ✅ Always Admin if authenticated
   const initial = name.charAt(0).toUpperCase();
 
   return (
@@ -45,12 +42,12 @@ function Header({
       {/* Separator */}
       <div className="h-6 border-l border-gray-300 mx-4" />
 
-      {/* Avatar + Name with Popover */}
+      {/* Avatar + User Info */}
       <Popover>
         <PopoverTrigger asChild>
           <div className="flex sm:flex-row flex-col items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded-md transition text-center sm:text-left">
             <Avatar className="w-10 h-10">
-              <AvatarImage src={avatarUrl} alt={name} />
+              <AvatarImage src={undefined} alt={name} />
               <AvatarFallback>{initial}</AvatarFallback>
             </Avatar>
             <div className="text-sm leading-tight">
@@ -63,7 +60,12 @@ function Header({
           <div className="text-sm text-gray-700 space-y-1">
             <button className="w-full text-left hover:bg-gray-100 px-2 py-1 rounded-md">Edit Profile</button>
             <button className="w-full text-left hover:bg-gray-100 px-2 py-1 rounded-md">Settings</button>
-            <button className="w-full text-left hover:bg-gray-100 px-2 py-1 rounded-md text-red-500">Logout</button>
+            <button
+              onClick={signOut}
+              className="w-full text-left hover:bg-gray-100 px-2 py-1 rounded-md text-red-500"
+            >
+              Logout
+            </button>
           </div>
         </PopoverContent>
       </Popover>
