@@ -116,7 +116,7 @@ export default function SidebarComponents() {
                         className="flex items-center gap-3 px-4 py-1.5 rounded-md text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 w-full text-left"
                     >
                         <Icon icon="ph:sign-out-bold" className="h-5 w-5" />
-                        <span className="text-base font-medium text-red-500">Logout</span>
+                        <span className="text-base font-medium text-gray-600">Logout</span>
                     </button>
                 </div>
             </div>

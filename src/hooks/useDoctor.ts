@@ -15,6 +15,19 @@ export interface Doctor {
   profilePictureUrl: string;
   isVerified: boolean;
   createdAt: string;
+  prcIdImageUrl?: string | null;   // final, browsable URL
+  prcIdStoragePath?: string | null; // original path (optional)
+}
+
+async function toSignedUrl(path: string | null, bucket = "doctor_docs") {
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path)) return path;
+
+  const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(path, 600);
+  if (signed?.signedUrl) return signed.signedUrl;
+
+  const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
+  return pub?.publicUrl ?? null;
 }
 
 export function useDoctors() {
@@ -40,27 +53,35 @@ export function useDoctors() {
           affiliated_hospitals_clinics,
           profile_picture_url,
           is_verified,
-          created_at
+          created_at,
+          prc_id_document_url
         `);
 
       if (error) {
         console.error("Error fetching doctors:", error.message);
         setDoctors([]);
       } else {
-        const mapped: Doctor[] = (data ?? []).map((doc: any) => ({
-          id: doc.id,
-          name: `${doc.first_name} ${doc.last_name}`,
-          gender: doc.gender,
-          email: doc.email,
-          prcLicenseNumber: doc.prc_license_number,
-          phoneNumber: doc.phone_number,
-          birthDate: doc.birth_date,
-          education: doc.education,
-          affiliatedHospitalsClinics: doc.affiliated_hospitals_clinics ?? [],
-          profilePictureUrl: doc.profile_picture_url ?? "/doctor.png",
-          isVerified: doc.is_verified,
-          createdAt: doc.created_at,
-        }));
+        const mapped = await Promise.all(
+          (data ?? []).map(async (doc: any) => {
+            const signed = await toSignedUrl(doc.prc_id_document_url, "doctor_docs"); // 🔁 bucket
+            return {
+              id: doc.id,
+              name: `${doc.first_name} ${doc.last_name}`,
+              gender: doc.gender,
+              email: doc.email,
+              prcLicenseNumber: doc.prc_license_number,
+              prcIdImageUrl: signed,
+              prcIdStoragePath: doc.prc_id_document_url ?? null,
+              phoneNumber: doc.phone_number,
+              birthDate: doc.birth_date,
+              education: doc.education,
+              affiliatedHospitalsClinics: doc.affiliated_hospitals_clinics ?? [],
+              profilePictureUrl: doc.profile_picture_url ?? "/doctor.png",
+              isVerified: doc.is_verified,
+              createdAt: doc.created_at,
+            } as Doctor;
+          })
+        );
         setDoctors(mapped);
       }
 

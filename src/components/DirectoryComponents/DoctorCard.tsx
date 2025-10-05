@@ -7,12 +7,6 @@ interface DoctorCardProps {
   onViewDetails: () => void;
 }
 
-const DayTag = ({ day }: { day: string }) => (
-  <div className="bg-gray-100 text-gray-600 text-xs font-medium px-2.5 py-1 rounded-md">
-    {day}
-  </div>
-);
-
 export default function DoctorCard({ doctor, onViewDetails }: DoctorCardProps) {
   const {
     name,
@@ -22,10 +16,7 @@ export default function DoctorCard({ doctor, onViewDetails }: DoctorCardProps) {
   } = doctor;
 
   const MAX_AFFILIATIONS_VISIBLE = 2;
-  const visibleAffiliations = affiliatedHospitalsClinics.slice(
-    0,
-    MAX_AFFILIATIONS_VISIBLE
-  );
+  const visibleAffiliations = affiliatedHospitalsClinics.slice(0, MAX_AFFILIATIONS_VISIBLE);
   const remainingAffiliationsCount =
     affiliatedHospitalsClinics.length - MAX_AFFILIATIONS_VISIBLE;
 
@@ -34,7 +25,7 @@ export default function DoctorCard({ doctor, onViewDetails }: DoctorCardProps) {
       {/* Card Header */}
       <div className="flex items-center gap-4">
         <img
-          src={profilePictureUrl || defaultAvatar}
+          src={profilePictureUrl || (defaultAvatar as unknown as string)}
           alt={name}
           className="w-16 h-16 rounded-full object-cover"
         />
@@ -52,7 +43,7 @@ export default function DoctorCard({ doctor, onViewDetails }: DoctorCardProps) {
                 className={`h-2 w-2 rounded-full ${
                   isVerified ? "bg-[#166534]" : "bg-gray-500"
                 }`}
-              ></span>
+              />
               {isVerified ? "Verified" : "Unverified"}
             </span>
           </div>
