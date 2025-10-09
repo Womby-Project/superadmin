@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Icon } from "@iconify/react";
 import type { UiForumPost, ModerationStatus } from "@/components/types/forum";
+import { supabase } from "@/lib/supabaseClient";
 
 import ReviewPostModal from "../modals/ReviewPost";
 import KeepPostModal from "../modals/KeepPost";
@@ -11,10 +12,13 @@ import DismissPostModal from "../modals/DismissPost";
 
 interface ForumPostCardProps {
   post: UiForumPost;
+  /** Reported tab: archive/remove */
   onRemove?: (postId: string, reasons: string[]) => void;
+  /** Approval queue context */
   isApprovalQueue?: boolean;
-  onApprove?: (postId: string) => void;
-  onDismiss?: (postId: string, reasons: string[]) => void;
+  /** Optional: parent can refresh lists AFTER DB success (no DB call here) */
+  onApprove?: (postId: string) => void | Promise<void>;
+  onDismiss?: (postId: string, reasons: string[]) => void | Promise<void>;
   onViewPost?: (post: UiForumPost) => void;
   isDetailView?: boolean;
 }
@@ -28,9 +32,7 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
   onViewPost,
   isDetailView = false,
 }) => {
-  const [currentStatus, setCurrentStatus] = useState<ModerationStatus | undefined>(
-    post.status
-  );
+  const [currentStatus, setCurrentStatus] = useState<ModerationStatus | undefined>(post.status);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isKeepModalOpen, setIsKeepModalOpen] = useState(false);
   const [isRemoveModalOpen, setIsRemoveModalOpen] = useState(false);
@@ -38,7 +40,40 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [isDismissModalOpen, setIsDismissModalOpen] = useState(false);
 
-  // --- Action Handlers ---
+  const [busy, setBusy] = useState(false);
+  const [actionTaken, setActionTaken] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  /* ---------------- UI Helpers ---------------- */
+  const getStatusPillClasses = (status?: ModerationStatus) => {
+    switch (status) {
+      case "Pending":
+        return "bg-yellow-100 text-yellow-800";
+      case "Under Review":
+        return "bg-orange-100 text-orange-800";
+      case "Retained":
+        return "bg-green-100 text-green-800";
+      case "Removed":
+        return "bg-red-100 text-red-800";
+      case "Posted":
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+
+  // If we’re in the approval queue and an action was taken, show “Approved/Dismissed”
+  const getStatusLabel = (status?: ModerationStatus) => {
+    if (isApprovalQueue && actionTaken) {
+      if (status === "Posted") return "Approved";
+      if (status === "Removed") return "Dismissed";
+    }
+    return status ?? "Posted";
+  };
+
+  const shouldShowPill =
+    isApprovalQueue ? actionTaken : !!currentStatus && currentStatus !== "Posted";
+
+  /* ---------------- Reported tab local-only actions ---------------- */
   const handleReviewConfirm = () => {
     setCurrentStatus("Under Review");
     setIsReviewModalOpen(false);
@@ -60,42 +95,87 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
     setCurrentStatus("Removed");
   };
 
-  // Approval Queue Handlers
-  const handleApproveConfirm = () => {
-    onApprove?.(post.id);
-    setIsApproveModalOpen(false);
+  /* ---------------- Approval Queue: DB-wired actions ---------------- */
+  const approveInDb = async (postId: string) => {
+    const { error } = await supabase
+      .from("forum_posts")
+      .update({ status: "Approved" })
+      .eq("id", postId)
+      .eq("status", "Pending");
+    if (error) throw error;
   };
 
-  const handleDismissConfirm = (reasons: string[]) => {
-    onDismiss?.(post.id, reasons);
-    setIsDismissModalOpen(false);
+  const dismissInDb = async (postId: string, reasons?: string[]) => {
+    const { error } = await supabase
+      .from("forum_posts")
+      .update({ status: "Dismissed" })
+      .eq("id", postId)
+      .eq("status", "Pending");
+    if (error) throw error;
+
+    // Optional: log a moderation record (non-blocking)
+    if (reasons && reasons.length > 0) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const me = authData?.user?.id ?? null;
+        const { error: repErr } = await supabase.from("forum_reports").insert({
+          reported_by: me,
+          post_id: postId,
+          reason: reasons.join("; "),
+          status: "Reviewed",
+          reviewed_by: me,
+        });
+        if (repErr) console.warn("[ForumPostCard] report log failed:", repErr);
+      } catch (e) {
+        console.warn("[ForumPostCard] report log skipped:", e);
+      }
+    }
   };
 
-  // --- Click Wrappers ---
+  const handleApproveConfirm = async () => {
+    setErrMsg(null);
+    setBusy(true);
+    try {
+      await approveInDb(post.id);           // 🔌 DB write
+      setCurrentStatus("Posted");           // UI reflect → Approved
+      setActionTaken(true);
+      // optional parent refresh AFTER DB success
+      await Promise.resolve(onApprove?.(post.id));
+    } catch (e: any) {
+      console.error(e);
+      setErrMsg(e?.message ?? "Failed to approve post");
+    } finally {
+      setIsApproveModalOpen(false);
+      setBusy(false);
+    }
+  };
+
+  const handleDismissConfirm = async (reasons: string[]) => {
+    setErrMsg(null);
+    setBusy(true);
+    try {
+      await dismissInDb(post.id, reasons);  // 🔌 DB write
+      setCurrentStatus("Removed");          // UI reflect → Dismissed
+      setActionTaken(true);
+      // optional parent refresh AFTER DB success
+      await Promise.resolve(onDismiss?.(post.id, reasons));
+    } catch (e: any) {
+      console.error(e);
+      setErrMsg(e?.message ?? "Failed to dismiss post");
+    } finally {
+      setIsDismissModalOpen(false);
+      setBusy(false);
+    }
+  };
+
+  /* ---------------- Click wrappers ---------------- */
   const handleCardClick = () => {
     if (!isDetailView && onViewPost) onViewPost(post);
   };
 
   const handleButtonClick = (e: React.MouseEvent, action: () => void) => {
     e.stopPropagation();
-    action();
-  };
-
-  // --- UI Helpers ---
-  const getStatusPill = (status?: ModerationStatus) => {
-    switch (status) {
-      case "Pending":
-        return "bg-yellow-100 text-yellow-800";
-      case "Under Review":
-        return "bg-orange-100 text-orange-800";
-      case "Retained":
-        return "bg-green-100 text-green-800";
-      case "Removed":
-        return "bg-gray-200 text-gray-700";
-      case "Posted":
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
+    if (!busy) action();
   };
 
   return (
@@ -120,16 +200,23 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
                   {isApprovalQueue ? `Submitted ${post.date}` : `Posted on ${post.date}`}
                 </p>
               </div>
-              {currentStatus && currentStatus !== "Posted" && !isApprovalQueue && (
+
+              {shouldShowPill && (
                 <span
-                  className={`px-2.5 py-1 text-xs font-medium rounded-full ${getStatusPill(
+                  className={`px-2.5 py-1 text-xs font-medium rounded-full ${getStatusPillClasses(
                     currentStatus
                   )}`}
                 >
-                  {currentStatus}
+                  {getStatusLabel(currentStatus)}
                 </span>
               )}
             </div>
+
+            {errMsg && (
+              <div className="mt-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
+                {errMsg}
+              </div>
+            )}
 
             {post.replyTo && !isApprovalQueue && (
               <p className="mt-3 text-sm text-gray-500">
@@ -171,10 +258,7 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
               {!isApprovalQueue && (
                 <div className="flex items-center space-x-6 text-gray-500 text-sm">
                   <div className="flex items-center space-x-1.5">
-                    <Icon
-                      icon="healthicons:heart-outline-24px"
-                      className="h-4 w-4"
-                    />
+                    <Icon icon="healthicons:heart-outline-24px" className="h-4 w-4" />
                     <span>{post.likes}</span>
                   </div>
                   <div className="flex items-center space-x-1.5">
@@ -185,18 +269,28 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
               )}
             </div>
 
-            {isApprovalQueue && (
+            {isApprovalQueue && !actionTaken && (
               <div className="mt-4 flex justify-end space-x-2">
                 <button
                   onClick={(e) => handleButtonClick(e, () => setIsApproveModalOpen(true))}
-                  className="flex items-center space-x-2 bg-green-600 text-white px-4 py-1.5 rounded-md hover:bg-green-700 text-sm font-medium"
+                  disabled={busy}
+                  className={`flex items-center space-x-2 px-4 py-1.5 rounded-md text-sm font-medium ${
+                    busy
+                      ? "bg-green-400 text-white cursor-not-allowed"
+                      : "bg-green-600 text-white hover:bg-green-700"
+                  }`}
                 >
                   <Icon icon="feather:check" className="h-4 w-4" />
                   <span>Approve</span>
                 </button>
                 <button
                   onClick={(e) => handleButtonClick(e, () => setIsDismissModalOpen(true))}
-                  className="flex items-center space-x-2 bg-red-600 text-white px-4 py-1.5 rounded-md hover:bg-red-700 text-sm font-medium"
+                  disabled={busy}
+                  className={`flex items-center space-x-2 px-4 py-1.5 rounded-md text-sm font-medium ${
+                    busy
+                      ? "bg-red-400 text-white cursor-not-allowed"
+                      : "bg-red-600 text-white hover:bg-red-700"
+                  }`}
                 >
                   <Icon icon="feather:x" className="h-4 w-4" />
                   <span>Dismiss</span>
