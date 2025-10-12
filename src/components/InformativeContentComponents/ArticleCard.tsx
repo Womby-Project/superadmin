@@ -14,12 +14,13 @@ export interface Article {
   source: string;
   fetchedDate: string;
   status: 'Posted' | 'Draft' | 'Archived';
+  viewsCount: number; // Added field
 }
 
 interface ContentCardProps {
   article: Article;
   onView: (article: Article) => void;
-  onStatusChange?: (id: string, newStatus: 'Posted' | 'Draft' | 'Archived') => void; 
+  onStatusChange?: (id: string, newStatus: 'Posted' | 'Draft' | 'Archived') => void;
 }
 
 const statusStyles = {
@@ -29,7 +30,7 @@ const statusStyles = {
 };
 
 export default function ContentCard({ article, onView, onStatusChange }: ContentCardProps) {
-  const { id, image, title, description, publishedDate, source, fetchedDate, status } = article;
+  const { id, image, title, description, publishedDate, source, fetchedDate, status, viewsCount } = article;
   const [loading, setLoading] = useState(false);
   const [localStatus, setLocalStatus] = useState(status);
 
@@ -40,13 +41,9 @@ export default function ContentCard({ article, onView, onStatusChange }: Content
       const { error } = await supabase.from('articles').update({ status: newStatus }).eq('id', id);
       if (error) throw error;
 
-      // Optimistic UI update
       setLocalStatus(newStatus);
-      if (onStatusChange) onStatusChange(id, newStatus);
-
-      toast.success(
-        `Article ${newStatus === 'Posted' ? 'posted' : 'archived'} successfully!`
-      );
+      onStatusChange?.(id, newStatus);
+      toast.success(`Article ${newStatus === 'Posted' ? 'posted' : 'archived'} successfully!`);
     } catch (err: any) {
       console.error('Error updating article status:', err);
       toast.error(err.message || 'Failed to update article status');
@@ -58,6 +55,7 @@ export default function ContentCard({ article, onView, onStatusChange }: Content
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col">
       <img className="h-48 w-full object-cover" src={image} alt={title} />
+
       <div className="p-4 flex flex-col flex-grow">
         <h3 className="text-md font-bold text-gray-800 mb-2">{title}</h3>
 
@@ -71,11 +69,11 @@ export default function ContentCard({ article, onView, onStatusChange }: Content
 
         <p className="text-sm text-gray-600 mb-4 flex-grow">{description}</p>
 
+        {/* Article Info Section */}
         <div className="text-xs text-gray-400 space-y-2 mb-4">
           <div className="flex items-center gap-1">
             <Icon icon="octicon:calendar-24" className="w-4 h-4" />
-            <span className="font-semibold text-gray-500">Published:</span>{' '}
-            {publishedDate}
+            <span className="font-semibold text-gray-500">Published:</span> {publishedDate}
           </div>
           <div className="flex items-center gap-1">
             <Icon icon="ion:open-outline" className="w-4 h-4" />
@@ -83,11 +81,17 @@ export default function ContentCard({ article, onView, onStatusChange }: Content
           </div>
           <div className="flex items-center gap-1">
             <Icon icon="mdi:web" className="w-4 h-4" />
-            <span className="font-semibold text-gray-500">Fetched:</span>{' '}
-            {fetchedDate}
+            <span className="font-semibold text-gray-500">Fetched:</span> {fetchedDate}
+          </div>
+
+          {/* 👇 NEW: Views Count Below Fetched */}
+          <div className="flex items-center gap-1 text-gray-600">
+            <Icon icon="uil:statistics" className="w-4 h-4" />
+            <span className="font-medium">{viewsCount?.toLocaleString() ?? 0} Views</span>
           </div>
         </div>
 
+        {/* Action Buttons */}
         <div className="mt-auto pt-2 border-t border-gray-100 flex items-center justify-end gap-2">
           <button
             onClick={() => onView(article)}

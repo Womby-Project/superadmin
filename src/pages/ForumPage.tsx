@@ -42,11 +42,13 @@ type CommentRow = {
   content: string;
   created_at: string | null;
   author_id: string;
-  post_id?: string; // we’ll fetch this when resolving comment reports
+  post_id?: string;
 };
 
 /* ---------------- Helpers ---------------- */
-const toUiStatus = (s: ForumPostRow["status"]): "Posted" | "Pending" | "Removed" => {
+const toUiStatus = (
+  s: ForumPostRow["status"]
+): "Posted" | "Pending" | "Removed" => {
   switch (s) {
     case "Approved":
       return "Posted";
@@ -60,13 +62,17 @@ const toUiStatus = (s: ForumPostRow["status"]): "Posted" | "Pending" | "Removed"
 };
 
 const getAggCount = (arr?: { count: number }[] | null) =>
-  Array.isArray(arr) && arr[0] && typeof arr[0].count === "number" ? arr[0].count : 0;
+  Array.isArray(arr) && arr[0] && typeof arr[0].count === "number"
+    ? arr[0].count
+    : 0;
 
 const mapToUi = (row: ForumPostRow, author?: AuthorPublic): UiForumPost => ({
   id: row.id,
   author: {
     id: row.author_id,
-    name: `${author?.first_name ?? "Anonymous"} ${author?.last_name ?? "Patient"}`.trim(),
+    name: `${author?.first_name ?? "Anonymous"} ${
+      author?.last_name ?? "Patient"
+    }`.trim(),
     profilePic: author?.profile_avatar_url ?? "/images/mother.png",
   },
   date: row.created_at ? new Date(row.created_at).toLocaleString() : "",
@@ -80,7 +86,9 @@ const mapToUi = (row: ForumPostRow, author?: AuthorPublic): UiForumPost => ({
 });
 
 /* Fetch minimal public author info via RPC (RLS-friendly) */
-async function fetchAuthorsPublic(ids: string[]) {
+async function fetchAuthorsPublic(
+  ids: string[]
+): Promise<Map<string, AuthorPublic>> {
   if (ids.length === 0) return new Map<string, AuthorPublic>();
   const { data, error } = await supabase.rpc("get_forum_author_public", {
     author_ids: ids,
@@ -112,13 +120,17 @@ async function sendForumNotification(params: {
     related_forum_post_id: postId,
     is_read: false,
   });
-  if (error) console.warn("[Forum] notification insert failed (non-blocking):", error);
+  if (error)
+    console.warn("[Forum] notification insert failed (non-blocking):", error);
 }
 
 /* ---------------- Data fetchers (Supabase) ---------------- */
 
 /** All Posts = Approved & not deleted */
-async function fetchApprovedPosts(limit = 20, offset = 0): Promise<UiForumPost[]> {
+async function fetchApprovedPosts(
+  limit = 20,
+  offset = 0
+): Promise<UiForumPost[]> {
   const { data, error } = await supabase
     .from("forum_posts")
     .select(
@@ -141,35 +153,33 @@ async function fetchApprovedPosts(limit = 20, offset = 0): Promise<UiForumPost[]
   return rows.map((r) => mapToUi(r, authorMap.get(r.author_id)));
 }
 
+/** Small helper to classify severity from count */
+const severityFromCount = (n: number): "Low" | "Medium" | "High" =>
+  n >= 10 ? "High" : n >= 5 ? "Medium" : "Low";
+
 /**
  * Reported Posts = posts that have at least one Pending report,
  * whether the report targeted the post itself OR a comment under that post.
  *
- * Strategy:
- * 1) Collect `post_id`s from pending post-level reports.
- * 2) Collect `comment_id`s from pending comment-level reports -> resolve to `post_id`s.
- * 3) Union post_ids, fetch posts (not deleted), order/limit/range, map to UI.
+ * Aggregates counts & reasons per post and injects `reportedBy`.
  */
-async function fetchReportedPosts(limit = 20, offset = 0): Promise<UiForumPost[]> {
-  // 1) Pending post-level reports
+async function fetchReportedPosts(
+  limit = 20,
+  offset = 0
+): Promise<UiForumPost[]> {
+  // 1) Pending post-level reports WITH reasons
   const { data: postReports, error: prErr } = await supabase
     .from("forum_reports")
-    .select("post_id")
+    .select("post_id, reason")
     .eq("status", "Pending")
     .not("post_id", "is", null);
 
   if (prErr) throw prErr;
 
-  const postIdsFromPostReports = new Set<string>(
-    (postReports ?? [])
-      .map((r: { post_id: string | null }) => r.post_id)
-      .filter((x): x is string => !!x)
-  );
-
-  // 2) Pending comment-level reports -> resolve to posts
+  // 2) Pending comment-level reports WITH reasons
   const { data: commentReports, error: crErr } = await supabase
     .from("forum_reports")
-    .select("comment_id")
+    .select("comment_id, reason")
     .eq("status", "Pending")
     .not("comment_id", "is", null);
 
@@ -178,14 +188,14 @@ async function fetchReportedPosts(limit = 20, offset = 0): Promise<UiForumPost[]
   const commentIds = Array.from(
     new Set(
       (commentReports ?? [])
-        .map((r: { comment_id: string | null }) => r.comment_id)
+        .map((r) => r.comment_id)
         .filter((x): x is string => !!x)
     )
   );
 
-  let postIdsFromCommentReports: string[] = [];
+  // 3) Resolve comment → post
+  const commentToPost = new Map<string, string>();
   if (commentIds.length > 0) {
-    // Resolve the parent posts of those comments
     const { data: comments, error: cErr } = await supabase
       .from("forum_comments")
       .select("id, post_id")
@@ -193,26 +203,47 @@ async function fetchReportedPosts(limit = 20, offset = 0): Promise<UiForumPost[]
 
     if (cErr) throw cErr;
 
-    postIdsFromCommentReports = Array.from(
-      new Set(
-        (comments ?? [])
-          .map((c: { id: string; post_id: string | null }) => c.post_id)
-          .filter((x): x is string => !!x)
-      )
-    );
+    (comments ?? []).forEach((c) => {
+      if (c.post_id) commentToPost.set(c.id, c.post_id);
+    });
   }
 
-  // 3) Union of all affected post ids
-  const affectedPostIds = Array.from(
-    new Set<string>([
-      ...postIdsFromPostReports,
-      ...postIdsFromCommentReports,
-    ])
-  );
+  // 4) Aggregate counts & reasons per post_id
+  type Agg = { count: number; reasons: string[] };
+  const postAgg = new Map<string, Agg>();
 
+  // from post-level reports
+  (postReports ?? []).forEach((r) => {
+    const pid = r.post_id;
+    if (!pid) return;
+    const prev = postAgg.get(pid) ?? { count: 0, reasons: [] };
+    postAgg.set(pid, {
+      count: prev.count + 1,
+      reasons: r.reason
+        ? Array.from(new Set([...prev.reasons, r.reason]))
+        : prev.reasons,
+    });
+  });
+
+  // from comment-level reports (map to parent post)
+  (commentReports ?? []).forEach((r) => {
+    const cid = r.comment_id;
+    if (!cid) return;
+    const pid = commentToPost.get(cid);
+    if (!pid) return;
+    const prev = postAgg.get(pid) ?? { count: 0, reasons: [] };
+    postAgg.set(pid, {
+      count: prev.count + 1,
+      reasons: r.reason
+        ? Array.from(new Set([...prev.reasons, r.reason]))
+        : prev.reasons,
+    });
+  });
+
+  const affectedPostIds = Array.from(postAgg.keys());
   if (affectedPostIds.length === 0) return [];
 
-  // 4) Fetch those posts (not deleted), apply order + range for paging
+  // 5) Fetch those posts (not deleted), page
   const { data: posts, error: postsErr } = await supabase
     .from("forum_posts")
     .select(
@@ -232,11 +263,33 @@ async function fetchReportedPosts(limit = 20, offset = 0): Promise<UiForumPost[]
   const rows = (posts ?? []) as ForumPostRow[];
   const authorIds = Array.from(new Set(rows.map((r) => r.author_id)));
   const authorMap = await fetchAuthorsPublic(authorIds);
-  return rows.map((r) => mapToUi(r, authorMap.get(r.author_id)));
+
+  // 6) Map to UI and inject reportedBy
+  const ui = rows.map<UiForumPost>((r) => {
+    const base = mapToUi(r, authorMap.get(r.author_id));
+    const agg = postAgg.get(r.id);
+    if (agg && agg.count > 0) {
+      return {
+        ...base,
+        reportedBy: {
+          count: agg.count,
+          severity: severityFromCount(agg.count),
+          reasons: agg.reasons,
+        },
+      };
+    }
+    return base;
+  });
+
+  // Only keep those that truly have reportedBy (defensive if paging filtered some out)
+  return ui.filter((p) => (p as UiForumPost).reportedBy?.count! > 0);
 }
 
 /** Approval Queue = Pending & not deleted */
-async function fetchApprovalQueue(limit = 20, offset = 0): Promise<UiForumPost[]> {
+async function fetchApprovalQueue(
+  limit = 20,
+  offset = 0
+): Promise<UiForumPost[]> {
   const { data, error } = await supabase
     .from("forum_posts")
     .select(
@@ -260,7 +313,10 @@ async function fetchApprovalQueue(limit = 20, offset = 0): Promise<UiForumPost[]
 }
 
 /** Archive = Dismissed OR is_deleted = true */
-async function fetchArchivedPosts(limit = 20, offset = 0): Promise<UiForumPost[]> {
+async function fetchArchivedPosts(
+  limit = 20,
+  offset = 0
+): Promise<UiForumPost[]> {
   const { data, error } = await supabase
     .from("forum_posts")
     .select(
@@ -283,7 +339,9 @@ async function fetchArchivedPosts(limit = 20, offset = 0): Promise<UiForumPost[]
 }
 
 /** Comments for Post (typed) */
-export async function fetchCommentsForPost(postId: string): Promise<UiComment[]> {
+export async function fetchCommentsForPost(
+  postId: string
+): Promise<UiComment[]> {
   const { data, error } = await supabase
     .from("forum_comments")
     .select(`id, content, created_at, author_id`)
@@ -294,13 +352,15 @@ export async function fetchCommentsForPost(postId: string): Promise<UiComment[]>
 
   const rows: CommentRow[] = (data ?? []) as CommentRow[];
 
-  // Authors
   const authorIds = Array.from(new Set(rows.map((r) => r.author_id)));
   let authorMap = new Map<string, AuthorPublic>();
   if (authorIds.length) {
-    const { data: authors, error: aerr } = await supabase.rpc("get_forum_author_public", {
-      author_ids: authorIds,
-    });
+    const { data: authors, error: aerr } = await supabase.rpc(
+      "get_forum_author_public",
+      {
+        author_ids: authorIds,
+      }
+    );
     if (aerr) {
       console.warn("[Forum] get_forum_author_public error:", aerr);
     } else {
@@ -318,7 +378,9 @@ export async function fetchCommentsForPost(postId: string): Promise<UiComment[]>
       likes: 0,
       author: {
         id: r.author_id,
-        name: `${a?.first_name ?? "Anonymous"} ${a?.last_name ?? "Patient"}`.trim(),
+        name: `${a?.first_name ?? "Anonymous"} ${
+          a?.last_name ?? "Patient"
+        }`.trim(),
         profilePic: a?.profile_avatar_url ?? "/images/mother.png",
       },
     };
@@ -349,7 +411,6 @@ export default function ForumPage() {
 
   /** -------- Mutations (with notifications) -------- */
 
-  // Approve -> notify author
   const approvePost = useCallback(
     async (postId: string) => {
       const { data, error } = await supabase
@@ -360,7 +421,10 @@ export default function ForumPage() {
         .maybeSingle();
 
       if (error) throw error;
-      if (!data) throw new Error("Approve failed: no matching row was updated (check RLS).");
+      if (!data)
+        throw new Error(
+          "Approve failed: no matching row was updated (check RLS)."
+        );
 
       const titleText = data.title ? `“${data.title}”` : "your forum post";
       await sendForumNotification({
@@ -374,7 +438,6 @@ export default function ForumPage() {
     [user?.id]
   );
 
-  // Dismiss -> notify author (+ optional moderation log)
   const dismissPost = useCallback(
     async (postId: string, reasons?: string[]) => {
       const { data, error } = await supabase
@@ -385,7 +448,10 @@ export default function ForumPage() {
         .maybeSingle();
 
       if (error) throw error;
-      if (!data) throw new Error("Dismiss failed: no matching row was updated (check RLS).");
+      if (!data)
+        throw new Error(
+          "Dismiss failed: no matching row was updated (check RLS)."
+        );
 
       if (reasons && reasons.length > 0 && user?.id) {
         const { error: repErr } = await supabase.from("forum_reports").insert({
@@ -395,11 +461,14 @@ export default function ForumPage() {
           status: "Reviewed",
           reviewed_by: user.id,
         });
-        if (repErr) console.warn("[Forum] report insert failed (non-blocking):", repErr);
+        if (repErr)
+          console.warn("[Forum] report insert failed (non-blocking):", repErr);
       }
 
       const titleText = data.title ? `“${data.title}”` : "your forum post";
-      const reasonText = reasons?.length ? ` Reason: ${reasons.join("; ")}.` : "";
+      const reasonText = reasons?.length
+        ? ` Reason: ${reasons.join("; ")}.`
+        : "";
       await sendForumNotification({
         recipientId: data.author_id,
         triggeredBy: user?.id,
@@ -411,7 +480,6 @@ export default function ForumPage() {
     [user?.id]
   );
 
-  // Archive/Remove -> notify author
   const archivePost = useCallback(
     async (postId: string, reasons?: string[]) => {
       const { data, error } = await supabase
@@ -422,7 +490,10 @@ export default function ForumPage() {
         .maybeSingle();
 
       if (error) throw error;
-      if (!data) throw new Error("Archive failed: no matching row was updated (check RLS).");
+      if (!data)
+        throw new Error(
+          "Archive failed: no matching row was updated (check RLS)."
+        );
 
       if (reasons && reasons.length > 0 && user?.id) {
         const { error: repErr } = await supabase.from("forum_reports").insert({
@@ -432,11 +503,14 @@ export default function ForumPage() {
           status: "Reviewed",
           reviewed_by: user.id,
         });
-        if (repErr) console.warn("[Forum] archive log insert failed (non-blocking):", repErr);
+        if (repErr)
+          console.warn("[Forum] archive log insert failed (non-blocking):", repErr);
       }
 
       const titleText = data.title ? `“${data.title}”` : "your forum post";
-      const reasonText = reasons?.length ? ` Reason: ${reasons.join("; ")}.` : "";
+      const reasonText = reasons?.length
+        ? ` Reason: ${reasons.join("; ")}.`
+        : "";
       await sendForumNotification({
         recipientId: data.author_id,
         triggeredBy: user?.id,
@@ -480,9 +554,10 @@ export default function ForumPage() {
           const data = await fetchArchivedPosts(20, 0);
           setArchivedPosts(data);
         }
-      } catch (e: any) {
-        console.error(e);
-        setErr(e?.message ?? "Failed to load forum data");
+      } catch (e) {
+        const err = e as Error;
+        console.error(err);
+        setErr(err?.message ?? "Failed to load forum data");
       } finally {
         setLoading(false);
       }
@@ -497,8 +572,9 @@ export default function ForumPage() {
       try {
         await loadAllCounts();
         await loadActiveTab("All Posts");
-      } catch (e: any) {
-        setErr(e?.message ?? "Failed to load forum data");
+      } catch (e) {
+        const err = e as Error;
+        setErr(err?.message ?? "Failed to load forum data");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -508,7 +584,7 @@ export default function ForumPage() {
   useEffect(() => {
     if (authLoading) return;
     setSelectedPost(null);
-    loadActiveTab(activeTab);
+    void loadActiveTab(activeTab);
   }, [activeTab, loadActiveTab, authLoading]);
 
   // Realtime: refresh when forum_posts, forum_reports (and optionally forum_comments) change
@@ -519,28 +595,27 @@ export default function ForumPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "forum_posts" },
         () => {
-          loadAllCounts();
-          loadActiveTab(activeTab);
+          void loadAllCounts();
+          void loadActiveTab(activeTab);
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "forum_reports" },
         () => {
-          loadAllCounts();
+          void loadAllCounts();
           if (activeTab === "Reported Posts & Comments") {
-            loadActiveTab(activeTab);
+            void loadActiveTab(activeTab);
           }
         }
       )
-      // Optional: if you want automatic refresh when comments themselves change
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "forum_comments" },
         () => {
           if (activeTab === "Reported Posts & Comments") {
-            loadAllCounts();
-            loadActiveTab(activeTab);
+            void loadAllCounts();
+            void loadActiveTab(activeTab);
           }
         }
       )
@@ -575,7 +650,10 @@ export default function ForumPage() {
     } catch (e) {
       console.error(e);
     } finally {
-      await Promise.all([loadActiveTab("Reported Posts & Comments"), loadActiveTab("Archive")]);
+      await Promise.all([
+        loadActiveTab("Reported Posts & Comments"),
+        loadActiveTab("Archive"),
+      ]);
       await loadAllCounts();
     }
   };
@@ -587,7 +665,10 @@ export default function ForumPage() {
     } catch (e) {
       console.error(e);
     } finally {
-      await Promise.all([loadActiveTab("Approval Queue"), loadActiveTab("All Posts")]);
+      await Promise.all([
+        loadActiveTab("Approval Queue"),
+        loadActiveTab("All Posts"),
+      ]);
       await loadAllCounts();
     }
   };
@@ -599,7 +680,10 @@ export default function ForumPage() {
     } catch (e) {
       console.error(e);
     } finally {
-      await Promise.all([loadActiveTab("Approval Queue"), loadActiveTab("Archive")]);
+      await Promise.all([
+        loadActiveTab("Approval Queue"),
+        loadActiveTab("Archive"),
+      ]);
       await loadAllCounts();
     }
   };
@@ -628,7 +712,7 @@ export default function ForumPage() {
         return (
           <ReportedPostsTab
             posts={reportedPosts}
-            onRemovePost={(id: string | number, reasons: string[]) =>
+            onRemovePost={(id: string, reasons: string[]) =>
               handleRemovePost(String(id), reasons)
             }
             onViewPost={handleViewPost}
@@ -639,8 +723,8 @@ export default function ForumPage() {
         return (
           <ApprovalQueueTab
             posts={approvalQueue}
-            onApprovePost={(id: string | number) => handleApprovePost(String(id))}
-            onDismissPost={(id: string | number, reasons: string[]) =>
+            onApprovePost={(id: string) => handleApprovePost(String(id))}
+            onDismissPost={(id: string, reasons: string[]) =>
               handleDismissPost(String(id), reasons)
             }
             onViewPost={handleViewPost}

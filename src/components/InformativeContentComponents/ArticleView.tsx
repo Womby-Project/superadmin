@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Icon } from "@iconify/react";
+import { supabase } from "@/lib/supabaseClient";
 import { type Article } from "./ArticleCard";
 
 interface ArticleDetailViewProps {
@@ -13,33 +14,36 @@ const statusStyles = {
   Draft: "bg-yellow-100 text-yellow-800",
 };
 
-
 function cleanArticleBody(body: string): string {
   if (!body) return "";
-
-  // 1. Replace relative image URLs with absolute
-  body = body.replace(
-    /<img([^>]+)src="\/([^"]+)"/g,
-    `<img$1src="https://www.parenteam.com.ph/$2"`
-  );
-
-  // 2. If there's data-src, replace src with data-src
-  body = body.replace(
-    /<img([^>]+)data-src="([^"]+)"([^>]*)>/g,
-    `<img$1src="$2"$3>`
-  );
-
-  // 3. Remove lazy-loading
+  body = body.replace(/<img([^>]+)src="\/([^"]+)"/g, `<img$1src="https://www.parenteam.com.ph/$2"`);
+  body = body.replace(/<img([^>]+)data-src="([^"]+)"([^>]*)>/g, `<img$1src="$2"$3>`);
   body = body.replace(/loading="lazy"/g, "");
-
   return body;
 }
 
+const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({ article, onBack }) => {
+  const [viewsCount, setViewsCount] = useState<number>(article.viewsCount ?? 0);
 
-const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
-  article,
-  onBack,
-}) => {
+  useEffect(() => {
+    // Try to record a view; admin users will be ignored by the RPC
+    const record = async () => {
+      if (!article?.id) return;
+      const { error } = await supabase.rpc("record_article_view", { p_article_id: article.id });
+      // We optimistically refetch the new count, but only if RPC didn't error
+      if (!error) {
+        const { data, error: fetchErr } = await supabase
+          .from("articles")
+          .select("views_count")
+          .eq("id", article.id)
+          .single();
+        if (!fetchErr && data) setViewsCount(data.views_count ?? viewsCount);
+      }
+    };
+    record();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article?.id]);
+
   return (
     <div className="bg-white p-6 md:p-8 rounded-lg shadow-sm border border-gray-200">
       {/* Back Button */}
@@ -53,13 +57,21 @@ const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
 
       {/* Article Header */}
       <div className="border-b border-gray-200 pb-4 mb-4">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
-          {article.title}
-        </h1>
+        <div className="flex items-start justify-between gap-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2 flex-1">
+            {article.title}
+          </h1>
+
+        {/* Views (right-aligned on header) */}
+          <div className="flex items-center gap-1 text-sm text-gray-600">
+            <Icon icon="uil:statistics" className="w-5 h-5" />
+            <span className="font-medium">{viewsCount.toLocaleString()}</span>
+          </div>
+        </div>
 
         {/* Status Badge */}
         {article.status && (
-          <div className="mb-3">
+          <div className="mt-2">
             <span
               className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${
                 statusStyles[article.status]
@@ -70,7 +82,7 @@ const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center text-xs text-gray-500 gap-x-4 gap-y-1">
+        <div className="flex flex-wrap items-center text-xs text-gray-500 gap-x-4 gap-y-1 mt-2">
           {article.author && <span>By {article.author}</span>}
           {article.author && <span className="text-gray-300">|</span>}
           <span>
@@ -123,12 +135,9 @@ const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({
 
       {/* Source & Copyright */}
       <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm">
-        <h4 className="font-semibold text-gray-800 mb-2">
-          Source & Copyright
-        </h4>
+        <h4 className="font-semibold text-gray-800 mb-2">Source & Copyright</h4>
         <p className="text-gray-600 mb-3">
-          This article was originally published by{" "}
-          <strong>{article.source}</strong>. Content has been adapted for
+          This article was originally published by <strong>{article.source}</strong>. Content has been adapted for
           educational purposes.
         </p>
         <a

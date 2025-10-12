@@ -1,4 +1,3 @@
-// src/components/types/forum.ts
 export type UUID = string;
 
 /** =======================
@@ -32,7 +31,7 @@ export const mapUiStatusToDb = (s: ModerationStatus): DbForumPostStatus | null =
       return 'Pending';
     case 'Removed':
       return 'Dismissed';
-    // These are review-layer concepts, not DB post states
+    // Review-layer only:
     case 'Under Review':
     case 'Retained':
     default:
@@ -53,7 +52,7 @@ export interface DbForumPost {
   updated_at: string | null;
   is_locked: boolean | null;
   is_deleted: boolean | null;
-  /** NEW: forum_posts.status in DB */
+  /** forum_posts.status in DB */
   status: DbForumPostStatus; // 'Pending' | 'Approved' | 'Dismissed'
 }
 
@@ -101,10 +100,21 @@ export type EmbeddedOne<T> = T | T[] | null;
 /** Convenience: count aggregation shape from PostgREST (e.g., forum_reactions(count)) */
 export type CountAgg = { count: number };
 
-/** When selecting forum_posts with aggregate counts */
+/** Convenience: projected row for reasons-only embed (alias) */
+export type ReasonRow = { reason: string };
+
+/** When selecting forum_posts with aggregate counts and report info.
+ *  NOTE: We rely on PostgREST relation aliasing in the SELECT:
+ *    - forum_reactions:forum_reactions(count)
+ *    - forum_comments:forum_comments(count)
+ *    - forum_reports_count:forum_reports(count)
+ *    - forum_report_reasons:forum_reports(reason)
+ */
 export interface DbForumPostWithAgg extends DbForumPost {
-  forum_reactions?: CountAgg[]; // top-1 with {count}
-  forum_comments?: CountAgg[];  // top-1 with {count}
+  forum_reactions?: CountAgg[];        // alias: forum_reactions:forum_reactions(count)
+  forum_comments?: CountAgg[];         // alias: forum_comments:forum_comments(count)
+  forum_reports_count?: CountAgg[];    // alias: forum_reports_count:forum_reports(count)
+  forum_report_reasons?: ReasonRow[];  // alias: forum_report_reasons:forum_reports(reason)
 }
 
 /** =======================
@@ -177,6 +187,25 @@ export const resolveAuthor = (
 export const getAggCount = (arr?: CountAgg[] | null) =>
   Array.isArray(arr) && arr[0] && typeof arr[0].count === 'number' ? arr[0].count : 0;
 
+/** Deduplicate + clamp reasons list */
+const normalizeReasons = (rows?: ReasonRow[] | null, max: number = 10): string[] => {
+  if (!Array.isArray(rows)) return [];
+  const uniq = Array.from(new Set(rows.map(r => r?.reason).filter(Boolean))) as string[];
+  return uniq.slice(0, max);
+};
+
+/** Build UiReportedBy block from an aggregated row */
+export const buildReportedBy = (row: Pick<DbForumPostWithAgg, 'forum_reports_count' | 'forum_report_reasons'>): UiReportedBy | undefined => {
+  const count = getAggCount(row.forum_reports_count);
+  if (count <= 0) return undefined;
+  const reasons = normalizeReasons(row.forum_report_reasons, 10);
+  return {
+    count,
+    severity: severityFromCount(count),
+    reasons,
+  };
+};
+
 /** Map a DB post row (+ optional author) to a UI post */
 export const mapDbPostToUi = (
   row: DbForumPostWithAgg,
@@ -192,4 +221,5 @@ export const mapDbPostToUi = (
   status: mapDbStatusToUi(row.status),
   isLocked: !!row.is_locked,
   isDeleted: !!row.is_deleted,
+  reportedBy: buildReportedBy(row),
 });
