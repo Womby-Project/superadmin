@@ -1,4 +1,4 @@
-// app/(admin)/approval/page.tsx (or wherever your ApprovalPage lives)
+// app/(admin)/approval/page.tsx
 
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ export default function ApprovalPage() {
       const { data, error } = await supabase
         .from("obgyn_users")
         .select(
-          "id, first_name, last_name, email, prc_license_number, affiliated_hospitals_clinics, is_verified, created_at"
+          "id, first_name, last_name, email, prc_license_number, affiliated_hospitals_clinics, prc_id_document_url, is_verified, created_at"
         )
         .or("is_verified.is.null,is_verified.eq.false")
         .order("created_at", { ascending: false });
@@ -28,10 +28,11 @@ export default function ApprovalPage() {
       if (error) throw error;
 
       const mapped: Approval[] =
-        (data ?? []).map((r) => ({
-          obgynId: r.id, // <-- required by ApprovalsTable patch
+        (data ?? []).map((r: any) => ({
+          obgynId: r.id, // <-- required by ApprovalsTable
           name: `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
           email: r.email ?? "",
+          prcIdUrl: r.prc_id_document_url ?? null, // <-- FIXED: map PRC image URL
           licenseNumber: r.prc_license_number ?? "",
           affiliations: Array.isArray(r.affiliated_hospitals_clinics)
             ? (r.affiliated_hospitals_clinics as string[])
@@ -74,7 +75,6 @@ export default function ApprovalPage() {
                 <p className="text-sm text-gray-500">No pending OBGYNs found.</p>
               </div>
             ) : (
-              // Pass onRefresh so ApprovalsTable can re-fetch after approve/return
               <ApprovalsTable approvals={approvals} onRefresh={fetchPending} />
             )}
           </div>

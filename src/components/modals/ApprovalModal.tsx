@@ -1,19 +1,23 @@
 // components/modals/ApprovalModal.tsx
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Icon } from '@iconify/react';
-import { type Approval } from '../ApprovalsComponents/ApprovalsTable';
+import { Icon } from "@iconify/react";
+import { type Approval } from "../ApprovalsComponents/ApprovalsTable";
 
 const DayBadge: React.FC<{ day: string }> = ({ day }) => (
-  <span className="px-2.5 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-full">{day}</span>
+  <span className="px-2.5 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-full">
+    {day}
+  </span>
 );
 
-const AvailabilitySlot: React.FC<{ time: string; days: string[]; }> = ({ time, days }) => (
+const AvailabilitySlot: React.FC<{ time: string; days: string[] }> = ({ time, days }) => (
   <div className="flex items-start gap-4">
     <Icon icon="ph:clock" className="h-5 w-5 text-[#E46B64] mt-0.5" />
     <div>
       <p className="text-sm font-medium text-gray-800">{time}</p>
       <div className="flex flex-wrap gap-1 mt-1.5">
-        {days.map(day => <DayBadge key={day} day={day} />)}
+        {days.map((day) => (
+          <DayBadge key={day} day={day} />
+        ))}
       </div>
     </div>
   </div>
@@ -31,36 +35,53 @@ interface ApprovalModalProps {
   onClose: () => void;
   onConfirm: () => void;
   approval: Approval | null;
-  loading?: boolean; // NEW
+  loading?: boolean;
 }
 
-export default function ApprovalModal({ isOpen, onClose, onConfirm, approval, loading = false }: ApprovalModalProps) {
+export default function ApprovalModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  approval,
+  loading = false,
+}: ApprovalModalProps) {
   if (!approval) return null;
 
   const handleOpenChange = (open: boolean) => {
     if (!loading && !open) onClose();
   };
 
+  const hasPrcImage = Boolean(approval.prcIdUrl);
+
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="w-[95%] max-w-lg bg-white rounded-xl shadow-2xl p-5 border-none space-y-4">
+      <DialogContent
+        className="w-[95%] max-w-lg bg-white rounded-xl shadow-2xl p-5 border-none space-y-4 max-h-[90vh] overflow-y-auto"
+      >
         {/* Header */}
         <div>
           <h2 className="text-xl font-bold text-gray-900">{approval.name}</h2>
           <p className="text-sm font-semibold text-gray-600 mt-1">
-            PRC License No.: <span className="text-xs font-normal">{approval.licenseNumber}</span>
+            PRC License No.:{" "}
+            <span className="text-xs font-normal">{approval.licenseNumber || "—"}</span>
           </p>
           <p className="text-xs text-gray-600 mt-0.5">{approval.email}</p>
         </div>
 
         <hr className="my-0.5 border-gray-200" />
 
-        {/* Availability (static demo; replace with real data if/when available) */}
+        {/* Availability (static demo; replace with real data if available) */}
         <div>
           <h3 className="text-sm font-bold text-gray-800 mb-2">Availability</h3>
           <div className="space-y-3">
-            <AvailabilitySlot time="8:00 AM - 2:00 PM" days={["Monday", "Tuesday", "Wednesday"]} />
-            <AvailabilitySlot time="10:00 AM - 4:00 PM" days={["Thursday", "Friday", "Saturday"]} />
+            <AvailabilitySlot
+              time="8:00 AM - 2:00 PM"
+              days={["Monday", "Tuesday", "Wednesday"]}
+            />
+            <AvailabilitySlot
+              time="10:00 AM - 4:00 PM"
+              days={["Thursday", "Friday", "Saturday"]}
+            />
           </div>
         </div>
 
@@ -74,21 +95,62 @@ export default function ApprovalModal({ isOpen, onClose, onConfirm, approval, lo
           </div>
         </div>
 
-        {/* PRC ID (placeholder) */}
-        <div className="-mb-1">
+        {/* PRC ID */}
+        <div>
           <h3 className="text-sm font-bold text-gray-800 mb-2">PRC ID</h3>
-          <p className="text-xs text-gray-600 mb-1">1 attachment</p>
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-md p-2">
-            <Icon icon="ph:file-image" className="w-7 h-7 text-gray-500 flex-shrink-0" />
-            <div>
-              <p className="text-xs font-medium text-gray-800">PRC-ID.png</p>
-              <p className="text-[11px] text-gray-500">5.57MB</p>
+
+          {hasPrcImage ? (
+            <div className="space-y-2">
+              <div className="bg-white border border-gray-200 rounded-md p-2 flex justify-center">
+                <a
+                  href={approval.prcIdUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block max-w-full"
+                  title="Open PRC ID in a new tab"
+                >
+                  {/* ✅ Make the image smaller but visible */}
+                  <img
+                    src={approval.prcIdUrl}
+                    alt="PRC ID"
+                    className="h-[180px] w-auto object-contain rounded"
+                  />
+                </a>
+              </div>
+              <div className="flex items-center justify-between">
+                <a
+                  href={approval.prcIdUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[#E46B64] hover:underline"
+                >
+                  Open original
+                </a>
+                <a
+                  href={approval.prcIdUrl}
+                  download
+                  className="text-xs text-gray-600 hover:underline"
+                >
+                  Download
+                </a>
+              </div>
             </div>
-          </div>
+          ) : (
+            <>
+              <p className="text-xs text-gray-600 mb-1">No PRC ID uploaded</p>
+              <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-md p-2">
+                <Icon icon="ph:file-image" className="w-7 h-7 text-gray-500 flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-gray-800">—</p>
+                  <p className="text-[11px] text-gray-500">0 KB</p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="flex justify-center gap-3 pt-4">
+        <div className="flex justify-center gap-3 pt-4 sticky bottom-0 bg-white pb-1">
           <button
             onClick={onClose}
             disabled={loading}

@@ -6,6 +6,7 @@ import ApprovalModal from "../modals/ApprovalModal";
 import RejectModal from "../modals/RejectModal";
 
 export interface Approval {
+  prcIdUrl: string;
   obgynId: string;
   name: string;
   email: string;
@@ -32,12 +33,15 @@ const ApprovalRow = ({
   onApprove,
   onReject,
   disabled,
+  effectiveStatus,
 }: {
   approval: Approval;
   onRowClick: () => void;
   onApprove: () => void;
   onReject: () => void;
   disabled?: boolean;
+  /** local override for showing "Returned" badge without DB field */
+  effectiveStatus?: "Pending" | "Returned";
 }) => {
   const MAX = 1;
   const { visible, more } = useMemo(() => {
@@ -69,7 +73,7 @@ const ApprovalRow = ({
         </ul>
       </td>
       <td className="px-6 py-4">
-        <StatusBadge status={approval.status} />
+        <StatusBadge status={effectiveStatus ?? approval.status} />
       </td>
       <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
@@ -97,33 +101,6 @@ const ApprovalRow = ({
   );
 };
 
-/** ---------------- Error extraction ---------------- **/
-function extractErrorDetail(err: any): string {
-  // keep supabase error intact; prefer server JSON
-  if (err?.context?.body) {
-    try {
-      const parsed = typeof err.context.body === "string" ? JSON.parse(err.context.body) : err.context.body;
-      const parts: string[] = [];
-      if (parsed?.message) parts.push(parsed.message);
-      if (parsed?.resend_status) parts.push(`resend_status=${parsed.resend_status}`);
-      if (parsed?.hint) parts.push(`hint=${parsed.hint}`);
-      if (parsed?.resend_detail) {
-        const d = typeof parsed.resend_detail === "string" ? parsed.resend_detail : JSON.stringify(parsed.resend_detail);
-        parts.push(`resend_detail=${d.slice(0, 200)}…`);
-      }
-      return parts.join(" | ") || JSON.stringify(parsed);
-    } catch {
-      return String(err.context.body);
-    }
-  }
-  return err?.message ?? "Unknown error";
-}
-
-// Strip undefined so JSON.stringify never drops the object to empty
-function clean<T extends object>(obj: T): T {
-  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
-}
-
 /** ---------------- Component ---------------- **/
 export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableProps) {
   const [modalState, setModalState] = useState<{ type: "approve" | "reject" | null; data: Approval | null }>({
@@ -131,6 +108,9 @@ export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableP
     data: null,
   });
   const [submitting, setSubmitting] = useState(false);
+
+  // Local map for showing "Returned" badge without changing DB (since schema has no "returned" field)
+  const [returnedIds, setReturnedIds] = useState<Record<string, true>>({});
 
   const handleOpenModal = (type: "approve" | "reject", approval: Approval) => {
     setModalState({ type, data: approval });
@@ -140,73 +120,49 @@ export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableP
     setModalState({ type: null, data: null });
   };
 
-  const runAction = useCallback(
-    async (payload: {
-      action: "verified" | "returned";
-      obgynId: string;
-      email: string;
-      name: string;
-      licenseNumber?: string;
-    }) => {
-      setSubmitting(true);
-      try {
-        // basic client-side validation (prevents accidental empty bodies)
-        const { action, obgynId, email, name } = payload;
-        if (!action || !obgynId || !email || !name) {
-          throw new Error("Client validation failed: missing required fields.");
-        }
-
-        const safePayload = clean(payload);
-        // ⚠️ Do NOT set custom headers. supabase-js will JSON-encode the body.
-        console.log("[notify-obgyn] sending payload", safePayload);
-        const { data, error } = await supabase.functions.invoke("notify-obgyn", {
-          body: safePayload,
-        });
-
-        if (error) {
-          console.error("[notify-obgyn] invoke error", error, error?.context?.body);
-          throw error;
-        }
-        if (onRefresh) await onRefresh();
-        return data;
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [onRefresh]
-  );
-
-  const handleConfirmApproval = async () => {
+  const handleConfirmApproval = useCallback(async () => {
     if (!modalState.data) return;
-    const { obgynId, name, email, licenseNumber } = modalState.data;
-    const t = toast.loading("Verifying account and sending email…");
-    try {
-      await runAction({ action: "verified", obgynId, email, name, licenseNumber });
-      toast.success(
-        "Congratulations! The OB-GYN account was successfully verified and an email notification has been sent.",
-        { id: t }
-      );
-      handleCloseModal();
-    } catch (err) {
-      toast.error(`Unable to verify and notify. ${extractErrorDetail(err)}`, { id: t });
-    }
-  };
+    const { obgynId, name } = modalState.data;
 
-  const handleConfirmRejection = async () => {
-    if (!modalState.data) return;
-    const { obgynId, name, email, licenseNumber } = modalState.data;
-    const t = toast.loading("Returning verification and sending email…");
+    const t = toast.loading("Verifying account…");
+    setSubmitting(true);
     try {
-      await runAction({ action: "returned", obgynId, email, name, licenseNumber });
-      toast.success(
-        "The verification could not be completed. We’ve notified the OB-GYN to review the details and resubmit.",
-        { id: t }
-      );
+      const { error } = await supabase
+        .from("obgyn_users")
+        .update({ is_verified: true, updated_at: new Date().toISOString() })
+        .eq("id", obgynId);
+
+      if (error) throw error;
+
+      toast.success(`OB-GYN "${name}" has been verified.`, { id: t });
       handleCloseModal();
-    } catch (err) {
-      toast.error(`Unable to return and notify. ${extractErrorDetail(err)}`, { id: t });
+      if (onRefresh) await onRefresh(); // approved users should disappear from the "pending" list
+    } catch (err: any) {
+      toast.error(`Unable to verify. ${err?.message ?? "Unknown error"}`, { id: t });
+    } finally {
+      setSubmitting(false);
     }
-  };
+  }, [modalState.data, onRefresh]);
+
+  const handleConfirmRejection = useCallback(async () => {
+    if (!modalState.data) return;
+    const { obgynId, name } = modalState.data;
+
+    // No email, no DB mutation — just visually mark as Returned
+    const t = toast.loading("Marking as returned…");
+    setSubmitting(true);
+    try {
+      setReturnedIds((prev) => ({ ...prev, [obgynId]: true }));
+      toast.success(`"${name}" has been marked as Returned.`, { id: t });
+      handleCloseModal();
+      // Optionally refresh if you want to re-query; keeping as-is since DB isn't changed.
+      // if (onRefresh) await onRefresh();
+    } catch (err: any) {
+      toast.error(`Unable to mark as returned. ${err?.message ?? "Unknown error"}`, { id: t });
+    } finally {
+      setSubmitting(false);
+    }
+  }, [modalState.data]);
 
   return (
     <>
@@ -238,6 +194,7 @@ export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableP
                     onApprove={() => handleOpenModal("approve", a)}
                     onReject={() => handleOpenModal("reject", a)}
                     disabled={submitting}
+                    effectiveStatus={returnedIds[a.obgynId] ? "Returned" : a.status}
                   />
                 ))
               )}
