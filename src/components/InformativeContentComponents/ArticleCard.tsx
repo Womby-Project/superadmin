@@ -1,6 +1,6 @@
 import { Icon } from '@iconify/react';
 import { supabase } from '@/lib/supabaseClient';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 export interface Article {
@@ -33,6 +33,11 @@ export default function ContentCard({ article, onView, onStatusChange }: Content
   const { id, image, title, description, publishedDate, source, fetchedDate, status, viewsCount } = article;
   const [loading, setLoading] = useState(false);
   const [localStatus, setLocalStatus] = useState(status);
+
+  // ✅ Keep local status synced with incoming props to avoid stale status when switching tabs
+  useEffect(() => {
+    setLocalStatus(status);
+  }, [id, status]);
 
   const updateStatus = async (newStatus: 'Posted' | 'Archived') => {
     if (!id) return;
@@ -84,7 +89,7 @@ export default function ContentCard({ article, onView, onStatusChange }: Content
             <span className="font-semibold text-gray-500">Fetched:</span> {fetchedDate}
           </div>
 
-          {/* 👇 NEW: Views Count Below Fetched */}
+          {/* Views Count */}
           <div className="flex items-center gap-1 text-gray-600">
             <Icon icon="uil:statistics" className="w-4 h-4" />
             <span className="font-medium">{viewsCount?.toLocaleString() ?? 0} Views</span>

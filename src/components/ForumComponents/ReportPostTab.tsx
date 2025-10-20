@@ -11,6 +11,69 @@ interface ReportedPostsTabProps {
   minReports?: number;
 }
 
+// --- helpers -----------------------------------------------------------------
+const toSeverity = (count: number): "Low" | "Medium" | "High" => {
+  if (count >= 10) return "High";
+  if (count >= 5) return "Medium";
+  return "Low";
+};
+
+const safeString = (v: unknown) =>
+  typeof v === "string" ? v : v == null ? "" : String(v);
+
+const safeAuthorName = (author: unknown) => {
+  if (typeof author === "string") return author;
+  if (author && typeof author === "object" && "name" in author) {
+    return safeString((author as any).name);
+  }
+  return "";
+};
+
+const safeTags = (tags: unknown): string[] =>
+  Array.isArray(tags)
+    ? tags.map((t) => (typeof t === "string" ? t : String(t))).filter(Boolean)
+    : [];
+
+const getSortableDate = (p: UiForumPost) => {
+  const raw =
+    (p as any)?.date ??
+    (p as any)?.createdAt ??
+    (p as any)?.created_at ??
+    (p as any)?.publishedAt ??
+    (p as any)?.published_at ??
+    null;
+  const ts = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(ts) ? ts : 0;
+};
+
+// Prefer mapped Ui shape, but support legacy/mixed data.
+const getReportCount = (p: UiForumPost): number => {
+  const fromUi = (p as any)?.reportedBy?.count;
+  if (typeof fromUi === "number") return fromUi;
+
+  const fromDirect = (p as any)?.reportCount;
+  if (typeof fromDirect === "number") return fromDirect;
+
+  const fromMeta = (p as any)?.meta?.reports?.count;
+  if (typeof fromMeta === "number") return fromMeta;
+
+  const fromArray = Array.isArray((p as any)?.reports)
+    ? (p as any).reports.length
+    : 0;
+
+  return fromArray ?? 0;
+};
+
+const normalizeStatus = (raw?: string | null) => {
+  const s = (raw ?? "").toLowerCase();
+  if (s === "removed" || s === "dismissed") return "Removed";
+  if (s === "pending") return "Pending";
+  if (s === "approved" || s === "posted") return "Posted";
+  return "Pending"; // default for reported view
+};
+
+// -----------------------------------------------------------------------------
+
 const ReportedPostsTab: React.FC<ReportedPostsTabProps> = ({
   posts,
   onRemovePost,
@@ -19,54 +82,6 @@ const ReportedPostsTab: React.FC<ReportedPostsTabProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
-
-  // --- Safe helpers ----------------------------------------------------------
-  const safeString = (v: unknown) =>
-    typeof v === "string" ? v : v == null ? "" : String(v);
-
-  const safeAuthorName = (author: unknown) => {
-    if (typeof author === "string") return author;
-    if (author && typeof author === "object" && "name" in author) {
-      
-      return safeString(author.name);
-    }
-    return "";
-  };
-
-  const safeTags = (tags: unknown): string[] =>
-    Array.isArray(tags)
-      ? tags.map((t) => (typeof t === "string" ? t : String(t))).filter(Boolean)
-      : [];
-
-  const getSortableDate = (p: UiForumPost) => {
-    const raw =
-      (p as any)?.date ??
-      (p as any)?.createdAt ??
-      (p as any)?.created_at ??
-      (p as any)?.publishedAt ??
-      (p as any)?.published_at ??
-      null;
-    const ts = raw ? new Date(raw).getTime() : NaN;
-    return Number.isFinite(ts) ? ts : 0;
-  };
-
-  // Prefer mapped Ui shape, but support legacy/mixed data.
-  const getReportCount = (p: UiForumPost): number => {
-    const fromUi = (p as any)?.reportedBy?.count;
-    if (typeof fromUi === "number") return fromUi;
-
-    const fromDirect = (p as any)?.reportCount;
-    if (typeof fromDirect === "number") return fromDirect;
-
-    const fromMeta = (p as any)?.meta?.reports?.count;
-    if (typeof fromMeta === "number") return fromMeta;
-
-    const fromArray = Array.isArray((p as any)?.reports)
-      ? (p as any).reports.length
-      : 0;
-
-    return fromArray ?? 0;
-  };
 
   // --- Derived lists ---------------------------------------------------------
   const filteredPosts = useMemo(() => {
@@ -137,14 +152,47 @@ const ReportedPostsTab: React.FC<ReportedPostsTabProps> = ({
           No reported posts found.
         </div>
       ) : (
-        filteredPosts.map((post) => (
-          <ForumPostCard
-            key={String((post as any)?.id)}
-            post={post}
-            onRemove={handleRemove}
-            onViewPost={onViewPost}
-          />
-        ))
+        filteredPosts.map((p) => {
+          // --- Ensure the card receives what it needs to show the buttons ----
+          const count = getReportCount(p);
+          const baseStatus = normalizeStatus((p as any)?.status);
+          const statusForCard = baseStatus === "Removed" ? "Removed" : "Pending";
+
+          // Try to pick up any existing reasons array; fall back to []
+          const rawReasons =
+            (p as any)?.reportedBy?.reasons ??
+            (p as any)?.reportReasons ??
+            (Array.isArray((p as any)?.reports)
+              ? (p as any).reports.map((r: any) => r?.reason).filter(Boolean)
+              : []);
+
+          const reasons: string[] = Array.isArray(rawReasons)
+            ? rawReasons
+                .map((r) => (typeof r === "string" ? r : String(r)))
+                .filter(Boolean)
+                .slice(0, 8)
+            : [];
+
+          const cardPost: UiForumPost = {
+            ...(p as UiForumPost),
+            status: statusForCard as any,
+            reportedBy: {
+              count,
+              severity: toSeverity(count),
+              reasons,
+            } as any,
+          };
+
+          return (
+            <ForumPostCard
+              key={String((p as any)?.id)}
+              post={cardPost}
+              onRemove={handleRemove}
+              onViewPost={onViewPost}
+              // IMPORTANT: DO NOT pass isApprovalQueue here (this is Report tab)
+            />
+          );
+        })
       )}
     </div>
   );

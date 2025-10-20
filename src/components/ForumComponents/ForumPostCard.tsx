@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Icon } from "@iconify/react";
 import type { UiForumPost, ModerationStatus } from "@/components/types/forum";
 import { supabase } from "@/lib/supabaseClient";
@@ -44,6 +44,48 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
   const [actionTaken, setActionTaken] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
+  // --- ADDED: find the post author's auth.users id so we can notify them
+  const [authorUserId, setAuthorUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from("forum_posts")
+        .select("author_id")
+        .eq("id", post.id)
+        .maybeSingle();
+      if (!alive) return;
+      if (!error && data?.author_id) setAuthorUserId(data.author_id as string);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [post.id]);
+
+  // --- ADDED: small helper to create a notification row for the patient
+  const notifyPatient = async (title: string, message: string) => {
+    try {
+      if (!authorUserId) return;
+      const { data: auth } = await supabase.auth.getUser();
+      const triggeredBy = auth?.user?.id ?? null;
+
+      await supabase.from("notifications").insert({
+        recipient_id: authorUserId,
+        recipient_role: "Patient",
+        triggered_by: triggeredBy,
+        type: "forum_interaction",
+        title,
+        message,
+        related_forum_post_id: post.id,
+        is_read: false,
+      });
+    } catch (e) {
+      // non-blocking; log only
+      console.warn("[ForumPostCard] notifyPatient failed:", e);
+    }
+  };
+
   /* ---------------- UI Helpers ---------------- */
   const getStatusPillClasses = (status?: ModerationStatus) => {
     switch (status) {
@@ -74,14 +116,42 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
     isApprovalQueue ? actionTaken : !!currentStatus && currentStatus !== "Posted";
 
   /* ---------------- Reported tab local-only actions ---------------- */
-  const handleReviewConfirm = () => {
+  const handleReviewConfirm = async () => {
     setCurrentStatus("Under Review");
     setIsReviewModalOpen(false);
+    // ADDED: notify patient
+    await notifyPatient(
+      "Your post is under review",
+      "Your post was reported and is being reviewed by an administrator. We’ll notify you once a decision is made."
+    );
   };
 
-  const handleKeepConfirm = () => {
-    setCurrentStatus("Retained");
-    setIsKeepModalOpen(false);
+  // 🔁 UPDATED: Write back to DB → status 'Approved', keep UI as "Retained" so Remove stays available
+  const handleKeepConfirm = async () => {
+    setErrMsg(null);
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from("forum_posts")
+        .update({ status: "Approved" })
+        .eq("id", post.id);
+      if (error) throw error;
+
+      // Keep the local UI in "Retained" to match your flow (Keep → still allow Remove)
+      setCurrentStatus("Retained");
+
+      // ADDED: notify patient
+      await notifyPatient(
+        "Your post was kept",
+        "We reviewed your post and decided to keep it visible. Thanks for contributing to the community!"
+      );
+    } catch (e: any) {
+      console.error(e);
+      setErrMsg(e?.message ?? "Failed to keep post");
+    } finally {
+      setIsKeepModalOpen(false);
+      setBusy(false);
+    }
   };
 
   const handleInitialRemoveConfirm = () => {
@@ -93,6 +163,13 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
     onRemove?.(post.id, reasons);
     setIsReasonModalOpen(false);
     setCurrentStatus("Removed");
+
+    // ADDED: notify patient (fire-and-forget to keep signature the same)
+    const reasonList = reasons.join(", ");
+    void notifyPatient(
+      "Your post was removed",
+      `An administrator removed your post for the following reason(s): ${reasonList}. If you believe this was a mistake, please contact support.`
+    );
   };
 
   /* ---------------- Approval Queue: DB-wired actions ---------------- */
@@ -141,6 +218,12 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
       setActionTaken(true);
       // optional parent refresh AFTER DB success
       await Promise.resolve(onApprove?.(post.id));
+
+      // ADDED: notify patient
+      await notifyPatient(
+        "Your post was approved",
+        "Your post has been approved by an administrator and is now visible to the community."
+      );
     } catch (e: any) {
       console.error(e);
       setErrMsg(e?.message ?? "Failed to approve post");
@@ -159,6 +242,13 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
       setActionTaken(true);
       // optional parent refresh AFTER DB success
       await Promise.resolve(onDismiss?.(post.id, reasons));
+
+      // ADDED: notify patient
+      const reasonList = reasons.join(", ");
+      await notifyPatient(
+        "Your post was dismissed",
+        `Your post did not meet our posting guidelines and has been dismissed. Reason(s): ${reasonList}.`
+      );
     } catch (e: any) {
       console.error(e);
       setErrMsg(e?.message ?? "Failed to dismiss post");
@@ -269,6 +359,7 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
               )}
             </div>
 
+            {/* Approval Queue actions */}
             {isApprovalQueue && !actionTaken && (
               <div className="mt-4 flex justify-end space-x-2">
                 <button
@@ -298,6 +389,7 @@ const ForumPostCard: React.FC<ForumPostCardProps> = ({
               </div>
             )}
 
+            {/* Reported tab actions (use your exact button styles) */}
             {post.reportedBy && currentStatus !== "Removed" && !isApprovalQueue && (
               <div className="mt-4 border-t border-gray-200 pt-4">
                 <div className="flex justify-between items-center">

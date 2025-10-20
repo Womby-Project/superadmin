@@ -6,6 +6,7 @@ import { type Article } from "./ArticleCard";
 interface ArticleDetailViewProps {
   article: Article;
   onBack: () => void;
+  onStatusChange?: (id: string, newStatus: "Posted" | "Draft" | "Archived") => void;
 }
 
 const statusStyles = {
@@ -16,21 +17,25 @@ const statusStyles = {
 
 function cleanArticleBody(body: string): string {
   if (!body) return "";
-  body = body.replace(/<img([^>]+)src="\/([^"]+)"/g, `<img$1src="https://www.parenteam.com.ph/$2"`);
-  body = body.replace(/<img([^>]+)data-src="([^"]+)"([^>]*)>/g, `<img$1src="$2"$3>`);
-  body = body.replace(/loading="lazy"/g, "");
-  return body;
+  let next = body.replace(/<img([^>]+)src="\/([^"]+)"/g, `<img$1src="https://www.parenteam.com.ph/$2"`);
+  next = next.replace(/<img([^>]+)data-src="([^"]+)"([^>]*)>/g, `<img$1src="$2"$3>`);
+  next = next.replace(/loading="lazy"/g, "");
+  return next;
 }
 
-const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({ article, onBack }) => {
+const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({ article, onBack, onStatusChange }) => {
   const [viewsCount, setViewsCount] = useState<number>(article.viewsCount ?? 0);
+  const [updating, setUpdating] = useState(false);
+  const [localStatus, setLocalStatus] = useState<Article["status"]>(article.status);
 
   useEffect(() => {
-    // Try to record a view; admin users will be ignored by the RPC
+    setLocalStatus(article.status);
+  }, [article.status]);
+
+  useEffect(() => {
     const record = async () => {
       if (!article?.id) return;
       const { error } = await supabase.rpc("record_article_view", { p_article_id: article.id });
-      // We optimistically refetch the new count, but only if RPC didn't error
       if (!error) {
         const { data, error: fetchErr } = await supabase
           .from("articles")
@@ -43,6 +48,22 @@ const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({ article, onBack }
     record();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [article?.id]);
+
+  const updateStatus = async (newStatus: "Posted" | "Archived") => {
+    if (!article?.id) return;
+    try {
+      setUpdating(true);
+      const { error } = await supabase.from("articles").update({ status: newStatus }).eq("id", article.id);
+      if (error) throw error;
+
+      setLocalStatus(newStatus);
+      onStatusChange?.(article.id, newStatus);
+    } catch (err) {
+      console.error("Error updating article status:", err);
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   return (
     <div className="bg-white p-6 md:p-8 rounded-lg shadow-sm border border-gray-200">
@@ -62,7 +83,7 @@ const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({ article, onBack }
             {article.title}
           </h1>
 
-        {/* Views (right-aligned on header) */}
+          {/* Views */}
           <div className="flex items-center gap-1 text-sm text-gray-600">
             <Icon icon="uil:statistics" className="w-5 h-5" />
             <span className="font-medium">{viewsCount.toLocaleString()}</span>
@@ -70,14 +91,14 @@ const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({ article, onBack }
         </div>
 
         {/* Status Badge */}
-        {article.status && (
+        {localStatus && (
           <div className="mt-2">
             <span
               className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${
-                statusStyles[article.status]
+                statusStyles[localStatus]
               }`}
             >
-              {article.status}
+              {localStatus}
             </span>
           </div>
         )}
@@ -101,16 +122,24 @@ const ArticleDetailView: React.FC<ArticleDetailViewProps> = ({ article, onBack }
 
       {/* Action Buttons */}
       <div className="flex justify-end items-center gap-2 mb-4">
-        {article.status === "Posted" && (
-          <button className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 border border-gray-200">
+        {localStatus === "Posted" && (
+          <button
+            onClick={() => updateStatus("Archived")}
+            disabled={updating}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 border border-gray-200 disabled:opacity-50"
+          >
             <Icon icon="ri:archive-line" className="w-4 h-4" />
-            <span>Archive</span>
+            <span>{updating ? "Archiving..." : "Archive"}</span>
           </button>
         )}
-        {article.status === "Draft" && (
-          <button className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-green-600 rounded-md hover:bg-green-50 border border-green-200">
+        {localStatus === "Draft" && (
+          <button
+            onClick={() => updateStatus("Posted")}
+            disabled={updating}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm text-green-600 rounded-md hover:bg-green-50 border border-green-200 disabled:opacity-50"
+          >
             <Icon icon="mdi:upload" className="w-4 h-4" />
-            <span>Post</span>
+            <span>{updating ? "Posting..." : "Post"}</span>
           </button>
         )}
       </div>
