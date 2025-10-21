@@ -23,10 +23,11 @@ export default function SidebarComponents() {
             {/* Logo and App Name */}
             <div className="h-15 flex items-center px-4 border-b border-gray-200 space-x-3 py-3 pl-6">
                 <img
-                    src="/src/assets/wombly-logo.png"
+                    src="/wombly-logo.png"
                     alt="womblylogo"
                     className="w-[40px] h-[40px] bg-[#FCF5EE] rounded-lg"
                 />
+
                 <div>
                     <h1 className="text-[17px] font-semibold text-gray-900 pr-15">Wombly</h1>
                     <p className="text-[13px] text-gray-500 pr-6">Admin Dashboard</p>

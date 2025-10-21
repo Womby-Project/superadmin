@@ -95,6 +95,14 @@ export default function ApprovalModal({
           </div>
         </div>
 
+        {/* ✅ Added Organization Field (exactly after affiliations) */}
+        {approval.organization && (
+          <div>
+            <h3 className="text-sm font-bold text-gray-800 mb-2">Organization</h3>
+            <p className="text-sm text-gray-700">{approval.organization}</p>
+          </div>
+        )}
+
         {/* PRC ID */}
         <div>
           <h3 className="text-sm font-bold text-gray-800 mb-2">PRC ID</h3>
@@ -109,7 +117,6 @@ export default function ApprovalModal({
                   className="block max-w-full"
                   title="Open PRC ID in a new tab"
                 >
-                  {/* ✅ Make the image smaller but visible */}
                   <img
                     src={approval.prcIdUrl}
                     alt="PRC ID"

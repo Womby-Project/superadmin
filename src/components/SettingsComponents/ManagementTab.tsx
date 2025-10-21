@@ -483,7 +483,7 @@ function LegalEditor({ docType }: { docType: DocType }) {
             Choose File
           </label>
           <span className="text-sm text-gray-500">
-            We’ll keep the file, but the app will prefer the extracted body for rendering.
+            
           </span>
         </div>
         <FileRow

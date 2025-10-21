@@ -20,10 +20,11 @@ export default function ApprovalPage() {
       const { data, error } = await supabase
         .from("obgyn_users")
         .select(
-          "id, first_name, last_name, email, prc_license_number, affiliated_hospitals_clinics, prc_id_document_url, is_verified, created_at"
+          "id, first_name, last_name, email, prc_license_number, affiliated_hospitals_clinics, prc_id_document_url, is_verified, organization, status, created_at"
         )
-        .or("is_verified.is.null,is_verified.eq.false")
+        .eq("status", "Pending")
         .order("created_at", { ascending: false });
+
 
       if (error) throw error;
 

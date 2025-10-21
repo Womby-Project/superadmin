@@ -1,20 +1,67 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  fetchPendingObgyns,
-  approveObgyn,
-  resolveAvatarUrl,
-  type ObgynUser,
-} from "@/components/services/obgynService";
-
+import { supabase } from "@/lib/supabaseClient";
 import AvatarWithFallback from "../ui/AvatarFallBack";
 
+// -------------------
+// Type Definition
+// -------------------
+export interface ObgynUser {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  prc_license_number: string | null;
+  profile_picture_url: string | null;
+  is_verified: boolean;
+  status?: string | null;
+  created_at: string;
+}
+
+// -------------------
+// Utility
+// -------------------
+function resolveAvatarUrl(url?: string | null): string {
+  return url || "/doctor.png";
+}
+
+// -------------------
+// Main Component
+// -------------------
 export default function PendingOBGYNs() {
   const [items, setItems] = useState<ObgynUser[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Fetch pending OB-GYNs
+  const fetchPendingObgyns = async (limit = 5, offset = 0) => {
+    const { data, error, count } = await supabase
+      .from("obgyn_users")
+      .select(
+        `
+        id,
+        first_name,
+        last_name,
+        email,
+        prc_license_number,
+        profile_picture_url,
+        is_verified,
+        status,
+        created_at
+      `,
+        { count: "exact" }
+      )
+      .eq("is_verified", false)
+      .eq("status", "Pending")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+    return { items: data ?? [], total: count ?? 0 };
+  };
+
 
   const load = async () => {
     setLoading(true);
@@ -34,6 +81,16 @@ export default function PendingOBGYNs() {
     load();
   }, []);
 
+  // Approve OB-GYN (set is_verified = true, status = 'Approved')
+  const approveObgyn = async (id: string) => {
+    const { error } = await supabase
+      .from("obgyn_users")
+      .update({ is_verified: true, status: "Approved" })
+      .eq("id", id);
+
+    if (error) throw error;
+  };
+
   const handleApprove = async (id: string) => {
     try {
       setBusyId(id);
@@ -49,6 +106,9 @@ export default function PendingOBGYNs() {
     }
   };
 
+  // -------------------
+  // Render
+  // -------------------
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm">
       <div className="flex justify-between items-center mb-4">
@@ -74,7 +134,7 @@ export default function PendingOBGYNs() {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <p className="text-sm text-gray-500">No pending OB-GYNs 🎉</p>
+        <p className="text-sm text-gray-500">No pending OB-GYNs </p>
       ) : (
         <div className="space-y-4">
           {items.map((doctor) => {
@@ -93,7 +153,7 @@ export default function PendingOBGYNs() {
                     src={avatar}
                     name={name}
                     size={40}
-                    fallbackBg="bg-pink-500" // can rotate colors per user
+                    fallbackBg="bg-pink-500"
                   />
 
                   <div className="flex-1">

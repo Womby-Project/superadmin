@@ -125,7 +125,7 @@ export default function MainDashboard() {
               icon="fa7-solid:user-doctor"
               iconBg="bg-[#F2ECFE]"
               iconColor="#7C3AED"
-              onClick={() => nav("/obgyns?filter=verified")}
+              onClick={() => nav("/obgyndirectory")}
             />
 
             <Card

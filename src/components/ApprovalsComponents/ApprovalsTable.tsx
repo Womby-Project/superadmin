@@ -12,7 +12,8 @@ export interface Approval {
   email: string;
   licenseNumber: string;
   affiliations: string[];
-  status: "Pending" | "Returned";
+  organization?: string;
+  status: "Pending" | "Returned" | "Approved";
 }
 
 interface ApprovalsTableProps {
@@ -21,9 +22,13 @@ interface ApprovalsTableProps {
 }
 
 /** ---------------- UI ---------------- **/
-const StatusBadge = ({ status }: { status: "Pending" | "Returned" }) => {
+const StatusBadge = ({ status }: { status: "Pending" | "Returned" | "Approved" }) => {
   const base = "text-xs font-semibold px-3 py-1 rounded-full inline-block";
-  const styles = { Pending: "bg-yellow-100 text-yellow-800", Returned: "bg-gray-200 text-gray-800" } as const;
+  const styles = {
+    Pending: "bg-yellow-100 text-yellow-800",
+    Returned: "bg-gray-200 text-gray-800",
+    Approved: "bg-green-100 text-green-700",
+  } as const;
   return <span className={`${base} ${styles[status]}`}>{status}</span>;
 };
 
@@ -33,15 +38,12 @@ const ApprovalRow = ({
   onApprove,
   onReject,
   disabled,
-  effectiveStatus,
 }: {
   approval: Approval;
   onRowClick: () => void;
   onApprove: () => void;
   onReject: () => void;
   disabled?: boolean;
-  /** local override for showing "Returned" badge without DB field */
-  effectiveStatus?: "Pending" | "Returned";
 }) => {
   const MAX = 1;
   const { visible, more } = useMemo(() => {
@@ -51,7 +53,9 @@ const ApprovalRow = ({
 
   return (
     <tr
-      className={`bg-white border-b hover:bg-gray-50 ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+      className={`bg-white border-b hover:bg-gray-50 ${
+        disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+      }`}
       onClick={() => !disabled && onRowClick()}
     >
       <td className="px-6 py-4">
@@ -63,7 +67,10 @@ const ApprovalRow = ({
         <ul className="space-y-1">
           {visible.map((h, i) => (
             <li key={i} className="flex items-start gap-2">
-              <Icon icon="ic:outline-place" className="h-4 w-4 text-[#E46B64] mt-0.5 flex-shrink-0" />
+              <Icon
+                icon="ic:outline-place"
+                className="h-4 w-4 text-[#E46B64] mt-0.5 flex-shrink-0"
+              />
               <span className="truncate max-w-[28ch]" title={h}>
                 {h}
               </span>
@@ -73,7 +80,7 @@ const ApprovalRow = ({
         </ul>
       </td>
       <td className="px-6 py-4">
-        <StatusBadge status={effectiveStatus ?? approval.status} />
+        <StatusBadge status={approval.status} />
       </td>
       <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
@@ -81,8 +88,8 @@ const ApprovalRow = ({
             disabled={disabled}
             onClick={onApprove}
             className="p-2 rounded-md bg-green-100 hover:bg-green-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Accept / Verify"
-            aria-label={`Verify ${approval.name}`}
+            title="Approve"
+            aria-label={`Approve ${approval.name}`}
           >
             <Icon icon="mdi:check" className="h-5 w-5 text-green-600" />
           </button>
@@ -103,14 +110,12 @@ const ApprovalRow = ({
 
 /** ---------------- Component ---------------- **/
 export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableProps) {
-  const [modalState, setModalState] = useState<{ type: "approve" | "reject" | null; data: Approval | null }>({
-    type: null,
-    data: null,
-  });
-  const [submitting, setSubmitting] = useState(false);
+  const [modalState, setModalState] = useState<{
+    type: "approve" | "reject" | null;
+    data: Approval | null;
+  }>({ type: null, data: null });
 
-  // Local map for showing "Returned" badge without changing DB (since schema has no "returned" field)
-  const [returnedIds, setReturnedIds] = useState<Record<string, true>>({});
+  const [submitting, setSubmitting] = useState(false);
 
   const handleOpenModal = (type: "approve" | "reject", approval: Approval) => {
     setModalState({ type, data: approval });
@@ -129,14 +134,18 @@ export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableP
     try {
       const { error } = await supabase
         .from("obgyn_users")
-        .update({ is_verified: true, updated_at: new Date().toISOString() })
+        .update({
+          is_verified: true,
+          status: "Approved",
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", obgynId);
 
       if (error) throw error;
 
       toast.success(`OB-GYN "${name}" has been verified.`, { id: t });
       handleCloseModal();
-      if (onRefresh) await onRefresh(); // approved users should disappear from the "pending" list
+      if (onRefresh) await onRefresh();
     } catch (err: any) {
       toast.error(`Unable to verify. ${err?.message ?? "Unknown error"}`, { id: t });
     } finally {
@@ -148,21 +157,29 @@ export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableP
     if (!modalState.data) return;
     const { obgynId, name } = modalState.data;
 
-    // No email, no DB mutation — just visually mark as Returned
-    const t = toast.loading("Marking as returned…");
+    const t = toast.loading("Returning registration…");
     setSubmitting(true);
     try {
-      setReturnedIds((prev) => ({ ...prev, [obgynId]: true }));
+      const { error } = await supabase
+        .from("obgyn_users")
+        .update({
+          is_verified: false,
+          status: "Returned",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", obgynId);
+
+      if (error) throw error;
+
       toast.success(`"${name}" has been marked as Returned.`, { id: t });
       handleCloseModal();
-      // Optionally refresh if you want to re-query; keeping as-is since DB isn't changed.
-      // if (onRefresh) await onRefresh();
+      if (onRefresh) await onRefresh();
     } catch (err: any) {
       toast.error(`Unable to mark as returned. ${err?.message ?? "Unknown error"}`, { id: t });
     } finally {
       setSubmitting(false);
     }
-  }, [modalState.data]);
+  }, [modalState.data, onRefresh]);
 
   return (
     <>
@@ -194,7 +211,6 @@ export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableP
                     onApprove={() => handleOpenModal("approve", a)}
                     onReject={() => handleOpenModal("reject", a)}
                     disabled={submitting}
-                    effectiveStatus={returnedIds[a.obgynId] ? "Returned" : a.status}
                   />
                 ))
               )}
@@ -214,6 +230,7 @@ export default function ApprovalsTable({ approvals, onRefresh }: ApprovalsTableP
         isOpen={modalState.type === "reject"}
         onClose={handleCloseModal}
         onConfirm={handleConfirmRejection}
+        approval={modalState.data} // ✅ Keep reject modal working
         loading={submitting}
       />
     </>

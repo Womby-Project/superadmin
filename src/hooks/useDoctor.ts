@@ -55,7 +55,8 @@ export function useDoctors() {
           is_verified,
           created_at,
           prc_id_document_url
-        `);
+        `)
+        .eq("is_verified", true);
 
       if (error) {
         console.error("Error fetching doctors:", error.message);
