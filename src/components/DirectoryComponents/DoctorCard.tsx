@@ -1,6 +1,6 @@
 import type { Doctor } from "@/hooks/useDoctor";  // ✅ fix import
 import { Icon } from "@iconify/react";
-import defaultAvatar from "@/assets/doctor.png";
+import defaultAvatar from "/doctor.png";
 
 interface DoctorCardProps {
   doctor: Doctor;

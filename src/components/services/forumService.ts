@@ -21,7 +21,7 @@ const resolveAvatarUrl = (value?: string | null): string => {
   if (!value) return "/placeholder-avatar.png";
   if (/^https?:\/\//i.test(value)) return value; // already a URL
   const { data } = supabase.storage.from("patient_profiles").getPublicUrl(value);
-  return data?.publicUrl ?? "/placeholder-avatar.png";
+  return data?.publicUrl ?? "/mother.png";
 };
 
 const isNonEmptyString = (x: unknown): x is string =>
