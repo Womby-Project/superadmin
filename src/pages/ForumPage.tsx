@@ -73,7 +73,7 @@ const mapToUi = (row: ForumPostRow, author?: AuthorPublic): UiForumPost => ({
     name: `${author?.first_name ?? "Anonymous"} ${
       author?.last_name ?? "Patient"
     }`.trim(),
-    profilePic: author?.profile_avatar_url ?? "/images/mother.png",
+    profilePic: author?.profile_avatar_url ?? "/mother.png",
   },
   date: row.created_at ? new Date(row.created_at).toLocaleString() : "",
   content: row.content,
@@ -381,7 +381,7 @@ export async function fetchCommentsForPost(
         name: `${a?.first_name ?? "Anonymous"} ${
           a?.last_name ?? "Patient"
         }`.trim(),
-        profilePic: a?.profile_avatar_url ?? "/images/mother.png",
+        profilePic: a?.profile_avatar_url ?? "/mother.png",
       },
     };
   });
