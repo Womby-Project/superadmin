@@ -171,7 +171,7 @@ export const severityFromCount = (n: number): UiReportedBy['severity'] =>
 /** Resolve author's display name and avatar with fallback */
 export const resolveAuthor = (
   a: Pick<DbPatientUser, 'id' | 'first_name' | 'last_name' | 'profile_avatar_url'> | null | undefined,
-  fallbackAvatar: string = '/images/mother.png'
+  fallbackAvatar: string = '/mother.png'
 ): UiAuthor => {
   const nameRaw = `${a?.first_name ?? ''} ${a?.last_name ?? ''}`.trim();
   const name = nameRaw.length ? nameRaw : 'Anonymous Patient';
