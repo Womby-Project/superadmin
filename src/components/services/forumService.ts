@@ -18,7 +18,7 @@ type EmbeddedOne<T> = T | T[] | null;
  * - Accepts full URLs or storage object paths
  * ---------------------------------------------------------------- */
 const resolveAvatarUrl = (value?: string | null): string => {
-  if (!value) return "/placeholder-avatar.png";
+  if (!value) return "/mother.png";
   if (/^https?:\/\//i.test(value)) return value; // already a URL
   const { data } = supabase.storage.from("patient_profiles").getPublicUrl(value);
   return data?.publicUrl ?? "/mother.png";

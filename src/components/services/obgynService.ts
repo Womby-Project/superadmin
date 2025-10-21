@@ -17,7 +17,7 @@ export type ObgynUser = {
 /** Resolve avatar from obgyn_profiles bucket */
 // src/services/obgynService.ts
 export const resolveAvatarUrl = (value?: string | null): string => {
-    const fallback = "/placeholder-avatar.png";
+    const fallback = "/doctor.png";
 
     if (!value) return fallback;
     if (/^https?:\/\//i.test(value)) return value;
