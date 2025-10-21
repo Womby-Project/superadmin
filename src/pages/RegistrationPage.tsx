@@ -72,8 +72,8 @@ export default function SignUpPage() {
             {/* Header */}
             <div className="flex items-center w-screen px-4 h-17 shadow-sm border border-[#E5E7EB] bg-[#FFFFFF] gap-2">
                 <img
-                    src="/src/assets/wombly-logo.png"
-                    alt="womblylogo"
+                    src="/mainlogo.png"
+                    alt="mainlogo"
                     className="w-[40px] h-[40px] bg-[#FCF5EE] rounded-lg"
                 />
                 <p className="font-bold text-[18px] text-[#E46B64]">Wombly</p>
